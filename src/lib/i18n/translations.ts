@@ -3,6 +3,7 @@ export const translations = {
     // 通用
     common: {
       home: "首页",
+      back: "返回",
       settings: "设置",
       save: "保存",
       cancel: "取消",
@@ -39,6 +40,13 @@ export const translations = {
       play: "播放",
       pause: "暂停",
       exitPlayMode: "退出播放模式",
+      exitDialog: {
+        title: "退出确认",
+        message: "是否舍弃尚未保存的更改？",
+        discard: "是",
+        no: "否",
+        cancel: "取消",
+      },
       controls: {
         pan: "左键拖拽：平移",
         zoom: "滚轮：缩放",
@@ -92,6 +100,7 @@ export const translations = {
     // Common
     common: {
       home: "Home",
+      back: "Back",
       settings: "Settings",
       save: "Save",
       cancel: "Cancel",
@@ -128,6 +137,13 @@ export const translations = {
       play: "Play",
       pause: "Pause",
       exitPlayMode: "Exit Play Mode",
+      exitDialog: {
+        title: "Exit Confirmation",
+        message: "Discard unsaved changes?",
+        discard: "Yes",
+        no: "No",
+        cancel: "Cancel",
+      },
       controls: {
         pan: "Left Click + Drag: Pan",
         zoom: "Scroll: Zoom",
@@ -181,6 +197,7 @@ export const translations = {
     // 共通
     common: {
       home: "ホーム",
+      back: "戻る",
       settings: "設定",
       save: "保存",
       cancel: "キャンセル",
@@ -217,6 +234,13 @@ export const translations = {
       play: "再生",
       pause: "一時停止",
       exitPlayMode: "再生モードを終了",
+      exitDialog: {
+        title: "終了確認",
+        message: "保存されていない変更を破棄しますか？",
+        discard: "はい",
+        no: "いいえ",
+        cancel: "キャンセル",
+      },
       controls: {
         pan: "左クリック + ドラッグ：パン",
         zoom: "スクロール：ズーム",
