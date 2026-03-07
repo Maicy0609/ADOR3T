@@ -317,17 +317,20 @@ export class HitsoundManager {
     // Apply normalization and soft clipping to prevent distortion
     if (onProgress) onProgress(95);
     
+    // Soft-clipping configuration constants
+    const TARGET_HEADROOM = 0.9;           // Target peak level after normalization
+    const SOFT_CLIP_LINEAR_THRESHOLD = 0.5; // Below this: linear (no distortion)
+    const SOFT_CLIP_LIMIT = 1.5;           // Above this: hard limit to ±1
+    
     // Calculate gain reduction if peak exceeds threshold
-    // Use a target headroom of 0.9 to leave some space for soft clipping
-    const targetHeadroom = 0.9;
-    const gainReduction = peakAmplitude > targetHeadroom ? targetHeadroom / peakAmplitude : 1.0;
+    const gainReduction = peakAmplitude > TARGET_HEADROOM ? TARGET_HEADROOM / peakAmplitude : 1.0;
     
     // Fast polynomial soft clipping function (approximates tanh, much faster)
     // Formula: x * (1 - x²/3) for |x| <= 1.5, then sign(x) for |x| > 1.5
     const softClip = (x: number): number => {
       const absX = x < 0 ? -x : x;
-      if (absX < 0.5) return x; // Linear region - no distortion
-      if (absX < 1.5) {
+      if (absX < SOFT_CLIP_LINEAR_THRESHOLD) return x; // Linear region - no distortion
+      if (absX < SOFT_CLIP_LIMIT) {
         const x2 = x * x;
         return x * (1 - x2 / 3); // Polynomial soft clipping
       }
@@ -347,10 +350,10 @@ export class HitsoundManager {
         for (let i = 0; i < outputData.length; i++) {
           const val = outputData[i];
           const absVal = val < 0 ? -val : val;
-          if (absVal > 0.5) {
+          if (absVal > SOFT_CLIP_LINEAR_THRESHOLD) {
             outputData[i] = softClip(val);
           }
-          // Values <= 0.5 are already clean, no processing needed
+          // Values below threshold are already clean, no processing needed
         }
       }
     }
