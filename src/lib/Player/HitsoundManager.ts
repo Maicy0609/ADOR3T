@@ -275,6 +275,7 @@ export class HitsoundManager {
     
     let placedCount = 0;
     const hitLengthSamples = Math.floor(hitDuration * sampleRate);
+    let peakAmplitude = 0; // Track peak amplitude during mixing (no extra pass needed)
     
     for (const t of this.scheduledTimestamps) {
       if (t < 0) continue; // Skip negative timestamps
@@ -291,9 +292,14 @@ export class HitsoundManager {
         const hitLength = Math.min(hitLengthSamples, bufferLength - outputStart);
         
         // Copy with mixing (add samples together for overlapping hitsounds)
+        // Track peak amplitude inline to avoid extra pass
         for (let i = 0; i < hitLength; i++) {
           const outputIdx = outputStart + i;
-          outputData[outputIdx] += hitData[i];
+          const newVal = outputData[outputIdx] + hitData[i];
+          outputData[outputIdx] = newVal;
+          // Track absolute peak
+          const absVal = newVal < 0 ? -newVal : newVal;
+          if (absVal > peakAmplitude) peakAmplitude = absVal;
         }
       }
       
@@ -306,21 +312,51 @@ export class HitsoundManager {
       }
     }
     
-    console.log('[HitsoundManager] Copied', placedCount, 'hitsounds in', (performance.now() - startTime).toFixed(2), 'ms');
+    console.log('[HitsoundManager] Copied', placedCount, 'hitsounds in', (performance.now() - startTime).toFixed(2), 'ms, peak:', peakAmplitude.toFixed(2));
     
-    // Clip the output to prevent distortion from mixing
+    // Apply normalization and soft clipping to prevent distortion
     if (onProgress) onProgress(95);
     
+    // Calculate gain reduction if peak exceeds threshold
+    // Use a target headroom of 0.9 to leave some space for soft clipping
+    const targetHeadroom = 0.9;
+    const gainReduction = peakAmplitude > targetHeadroom ? targetHeadroom / peakAmplitude : 1.0;
+    
+    // Fast polynomial soft clipping function (approximates tanh, much faster)
+    // Formula: x * (1 - x²/3) for |x| <= 1.5, then sign(x) for |x| > 1.5
+    const softClip = (x: number): number => {
+      const absX = x < 0 ? -x : x;
+      if (absX < 0.5) return x; // Linear region - no distortion
+      if (absX < 1.5) {
+        const x2 = x * x;
+        return x * (1 - x2 / 3); // Polynomial soft clipping
+      }
+      return x < 0 ? -1 : 1; // Hard limit for extreme values
+    };
+    
+    // Single pass: apply gain reduction and soft clipping
     for (let ch = 0; ch < numChannels; ch++) {
       const outputData = outputChannelData[ch];
-      for (let i = 0; i < outputData.length; i++) {
-        // Clip to [-1, 1] range
-        outputData[i] = Math.max(-1, Math.min(1, outputData[i]));
+      if (gainReduction < 1.0) {
+        // Apply gain reduction then soft clip
+        for (let i = 0; i < outputData.length; i++) {
+          outputData[i] = softClip(outputData[i] * gainReduction);
+        }
+      } else {
+        // Only soft clip if needed (peak is within range but may have some overshoots)
+        for (let i = 0; i < outputData.length; i++) {
+          const val = outputData[i];
+          const absVal = val < 0 ? -val : val;
+          if (absVal > 0.5) {
+            outputData[i] = softClip(val);
+          }
+          // Values <= 0.5 are already clean, no processing needed
+        }
       }
     }
     
     if (onProgress) onProgress(100);
-    console.log(`[HitsoundManager] Pre-synthesized ${placedCount} hitsounds in ${((performance.now() - startTime) / 1000).toFixed(2)}s, duration: ${totalDuration.toFixed(2)}s`);
+    console.log(`[HitsoundManager] Pre-synthesized ${placedCount} hitsounds in ${((performance.now() - startTime) / 1000).toFixed(2)}s, duration: ${totalDuration.toFixed(2)}s, gain: ${gainReduction.toFixed(3)}`);
   }
 
   /**
