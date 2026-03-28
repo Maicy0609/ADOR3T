@@ -82,10 +82,12 @@ export default defineConfig(({ mode, command }) => {
       },
     },
     server: {
-      port: 5173,
+      port: 3144,
+      host: '0.0.0.0',
     },
     preview: {
-      port: 4173,
+      port: 3144,
+      host: '0.0.0.0',
     },
   }
 })

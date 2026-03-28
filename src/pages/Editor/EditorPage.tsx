@@ -1,7 +1,7 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
-import { ArrowLeft, Settings, Save, Upload, Download, Music, Video } from "lucide-react"
+import { ArrowLeft, Settings, Save, Upload, Download, Music, Video, Image } from "lucide-react"
 import { SettingsModal } from "@/components/SettingsModal"
 import { LoadingModal } from "@/components/LoadingModal"
 import { NotificationSystem } from "./NotificationSystem"
@@ -17,6 +17,8 @@ export default function EditorPage() {
     fileInputRef,
     audioInputRef,
     videoInputRef,
+    decorationInputRef,
+    bgImageInputRef,
     
     // State
     isLoading,
@@ -29,6 +31,7 @@ export default function EditorPage() {
     playModeActive,
     settingsOpen,
     showExitDialog,
+    showVideoImportDialog,
     isDark,
     i18nMounted,
     settings,
@@ -40,12 +43,18 @@ export default function EditorPage() {
     handleFileLoad,
     handleAudioLoad,
     handleVideoLoad,
+    handleDecorationLoad,
+    handleBGImageLoad,
     handleExport,
     handlePlay,
     handleExitPlayMode,
     handleBackClick,
     handleConfirmExit,
     handleCancelExit,
+    handleVideoButtonClick,
+    handleImportVideoBackground,
+    handleImportDecoration,
+    handleCancelVideoImport,
     
     // Translation
     t
@@ -65,9 +74,11 @@ export default function EditorPage() {
       <NotificationSystem />
 
       {/* Hidden file inputs */}
-      <input ref={fileInputRef} type="file" accept=".adofai,.json" onChange={handleFileLoad} className="hidden" />
+      <input ref={fileInputRef} type="file" accept=".adofai,.json,.zip" onChange={handleFileLoad} className="hidden" />
       <input ref={audioInputRef} type="file" accept="audio/*" onChange={handleAudioLoad} className="hidden" />
       <input ref={videoInputRef} type="file" accept="video/*" onChange={handleVideoLoad} className="hidden" />
+      <input ref={decorationInputRef} type="file" accept="image/*" multiple onChange={handleDecorationLoad} className="hidden" />
+      <input ref={bgImageInputRef} type="file" accept="image/*" multiple onChange={handleBGImageLoad} className="hidden" />
 
       {/* Floating Header Buttons */}
       <div className="absolute top-0 left-0 right-0 px-4 py-3 flex justify-between items-center z-10 pointer-events-none">
@@ -125,9 +136,9 @@ export default function EditorPage() {
                 ? "text-slate-300 hover:text-white hover:bg-slate-700"
                 : "text-slate-700 hover:text-slate-900 hover:bg-slate-100"
             } bg-black/20 backdrop-blur-sm ${adofaiFile?.settings?.bgVideo ? "border border-purple-500/50" : ""}`}
-            onClick={() => videoInputRef.current?.click()}
+            onClick={handleVideoButtonClick}
             disabled={!adofaiFile}
-            title="Load Video"
+            title="Load Video/Decoration"
           >
             <Video className="w-4 h-4" />
           </Button>
@@ -211,6 +222,68 @@ export default function EditorPage() {
                 className={isDark ? "text-slate-300 hover:text-white" : "text-slate-600 hover:text-slate-900"}
               >
                 {t("editor.exitDialog.cancel")}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Video Import Dialog */}
+      {showVideoImportDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={handleCancelVideoImport} />
+          <div className={`relative w-full max-w-sm mx-4 rounded-xl shadow-2xl overflow-hidden ${
+            isDark ? "bg-slate-800" : "bg-white"
+          }`}>
+            <div className={`px-6 py-4 border-b ${isDark ? "border-slate-700" : "border-slate-200"}`}>
+              <h3 className={`text-lg font-semibold ${isDark ? "text-white" : "text-slate-900"}`}>
+                {t("editor.videoImport.title") || "导入媒体"}
+              </h3>
+            </div>
+            <div className={`px-6 py-4 ${isDark ? "text-slate-300" : "text-slate-600"}`}>
+              <div className="flex flex-col gap-3">
+                <Button
+                  onClick={handleImportVideoBackground}
+                  className={`w-full justify-start gap-3 ${
+                    isDark 
+                      ? "bg-purple-600 hover:bg-purple-500 text-white" 
+                      : "bg-purple-500 hover:bg-purple-600 text-white"
+                  }`}
+                >
+                  <Video className="w-5 h-5" />
+                  <span>{t("editor.videoImport.videoBackground") || "导入视频背景"}</span>
+                </Button>
+                <Button
+                  onClick={handleImportDecoration}
+                  className={`w-full justify-start gap-3 ${
+                    isDark 
+                      ? "bg-blue-600 hover:bg-blue-500 text-white" 
+                      : "bg-blue-500 hover:bg-blue-600 text-white"
+                  }`}
+                >
+                  <Image className="w-5 h-5" />
+                  <span>{t("editor.videoImport.decoration") || "导入装饰图片"}</span>
+                </Button>
+                <Button
+                  onClick={() => bgImageInputRef.current?.click()}
+                  className={`w-full justify-start gap-3 ${
+                    isDark 
+                      ? "bg-green-600 hover:bg-green-500 text-white" 
+                      : "bg-green-500 hover:bg-green-600 text-white"
+                  }`}
+                >
+                  <Image className="w-5 h-5" />
+                  <span>{t("editor.videoImport.bgImage") || "导入背景图片"}</span>
+                </Button>
+              </div>
+            </div>
+            <div className={`px-6 py-4 flex justify-end border-t ${isDark ? "border-slate-700" : "border-slate-200"}`}>
+              <Button
+                variant="ghost"
+                onClick={handleCancelVideoImport}
+                className={isDark ? "text-slate-300 hover:text-white" : "text-slate-600 hover:text-slate-900"}
+              >
+                {t("common.cancel") || "取消"}
               </Button>
             </div>
           </div>

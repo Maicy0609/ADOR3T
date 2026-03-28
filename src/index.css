@@ -76,3 +76,18 @@
 :root {
   font-family: 'Chillax-Regular',Lexend,Consolas;
 }
+
+/* Notyf custom styles - smaller notifications */
+.notyf {
+  --notyf-toast-width: 280px !important;
+  --notyf-toast-padding: 12px 16px !important;
+  --notyf-toast-font-size: 13px !important;
+  --notyf-margin: 8px !important;
+}
+
+.notyf__toast {
+  font-size: 13px !important;
+  padding: 12px 16px !important;
+  min-width: 280px !important;
+  margin-bottom: 8px !important;
+}

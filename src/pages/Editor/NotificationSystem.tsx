@@ -1,5 +1,7 @@
 import type { JSX } from "react/jsx-runtime"
-import { useState, useEffect, useCallback } from "react"
+import { useEffect, useCallback } from "react"
+import { Notyf } from "notyf"
+import "notyf/notyf.min.css"
 
 // 声明全局类型
 declare global {
@@ -10,39 +12,47 @@ declare global {
 
 // 通知系统组件
 export function NotificationSystem(): JSX.Element {
-  const [notifications, setNotifications] = useState<Array<{ id: number; type: string; message: string }>>([])
+  useEffect(() => {
+    // 初始化notyf
+    const notyf = new Notyf({
+      position: {
+        x: "right",
+        y: "bottom"
+      },
+      types: [
+        {
+          type: "success",
+          background: "#10B981"
+        },
+        {
+          type: "warning",
+          background: "#F59E0B"
+        },
+        {
+          type: "error",
+          background: "#EF4444"
+        },
+        {
+          type: "info",
+          background: "#3B82F6"
+        }
+      ]
+    })
 
-  const addNotification = useCallback((type: string, message: string): void => {
-    const id = Date.now()
-    setNotifications((prev) => [...prev, { id, type, message }])
-    setTimeout(() => {
-      setNotifications((prev) => prev.filter((n) => n.id !== id))
-    }, 3000)
+    // 暴露给全局使用
+    window.showNotification = (type: string, message: string): void => {
+      notyf.open({
+        type,
+        message,
+        duration: 3000
+      })
+    }
+
+    return () => {
+      // 清理所有通知
+      notyf.dismissAll()
+    }
   }, [])
 
-  // 暴露给全局使用
-  useEffect(() => {
-    window.showNotification = addNotification
-  }, [addNotification])
-
-  return (
-    <div className="fixed top-4 right-4 z-50 space-y-2">
-      {notifications.map((notification) => (
-        <div
-          key={notification.id}
-          className={`px-4 py-2 rounded-lg text-white font-medium shadow-lg transition-all duration-300 ${
-            notification.type === "success"
-              ? "bg-green-500"
-              : notification.type === "warning"
-                ? "bg-yellow-500"
-                : notification.type === "error"
-                  ? "bg-red-500"
-                  : "bg-blue-500"
-          }`}
-        >
-          {notification.message}
-        </div>
-      ))}
-    </div>
-  )
+  return null
 }

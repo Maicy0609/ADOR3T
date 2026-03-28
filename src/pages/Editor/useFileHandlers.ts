@@ -4,6 +4,7 @@ import { Parsers, Structure } from "adofai"
 import type { ILevelData } from "@/lib/Player/types"
 import { Player } from "@/lib/Player/Player"
 import { LargeFileParser } from "@/lib/LargeFileParser"
+import JSZip from "jszip"
 
 // 类型导入
 type ParseProgressEvent = Structure.ParseProgressEvent;
@@ -141,7 +142,7 @@ export function useFileHandlers({
           setLoadingProgress(80 + Math.round(progressEvent.percent * 0.05))
           setLoadingStatus(getStageText(progressEvent.stage, t))
         })
-        loadedLevel.calculateTilePosition()
+        // loadedLevel.calculateTilePosition() // Skip - using our own position calculation in PositionTrackManager
 
         setLoadingProgress(85)
         setLoadingStatus(t("loading.buildingScene"))
@@ -180,7 +181,7 @@ export function useFileHandlers({
         setLoadingProgress(progressEvent.percent)
         setLoadingStatus(getStageText(progressEvent.stage, t))
       })
-      loadedLevel.calculateTilePosition()
+      // loadedLevel.calculateTilePosition() // Skip - using our own position calculation in PositionTrackManager
       
       setLoadingProgress(95)
       setLoadingStatus(t("loading.buildingScene"))
@@ -214,7 +215,7 @@ export function useFileHandlers({
         setLoadingProgress(progressEvent.percent)
         setLoadingStatus(getStageText(progressEvent.stage, t))
       })
-      loadedLevel.calculateTilePosition()
+      // loadedLevel.calculateTilePosition() // Skip - using our own position calculation in PositionTrackManager
       
       setLoadingProgress(95)
       setLoadingStatus(t("loading.buildingScene"))
@@ -304,6 +305,239 @@ export function useFileHandlers({
     }
   }
 
+  // ZIP file loading - extract and auto-load level, audio, and decorations
+  const loadFromZip = async (arrayBuffer: ArrayBuffer): Promise<void> => {
+    setLoadingStatus(t("loading.extractingZip"))
+    setLoadingProgress(5)
+    
+    try {
+      const zip = await JSZip.loadAsync(arrayBuffer)
+      const files = Object.keys(zip.files)
+      console.log('[ZIP] Found files:', files)
+      
+      // Find adofai file with priority
+      const adofaiPriority = [
+        // Custom names first (any non-standard name)
+        (f: string) => f.endsWith('.adofai') && !['level.adofai', 'main.adofai', 'backup.adofai'].includes(f.toLowerCase()),
+        // Standard names in order
+        (f: string) => f.toLowerCase() === 'level.adofai',
+        (f: string) => f.toLowerCase() === 'main.adofai',
+        (f: string) => f.toLowerCase() === 'backup.adofai',
+        // sub*.adofai pattern
+        (f: string) => /^sub\d*\.adofai$/i.test(f.split('/').pop() || ''),
+      ]
+      
+      let adofaiFile: string | null = null
+      for (const matcher of adofaiPriority) {
+        const found = files.find(f => matcher(f))
+        if (found) {
+          adofaiFile = found
+          break
+        }
+      }
+      
+      if (!adofaiFile) {
+        throw new Error('No .adofai file found in ZIP')
+      }
+      
+      console.log('[ZIP] Using adofai file:', adofaiFile)
+      setLoadingProgress(10)
+      setLoadingStatus(t("loading.parsingLevel"))
+      
+      // Extract and parse the adofai file
+      const adofaiContent = await zip.file(adofaiFile)?.async('string')
+      if (!adofaiContent) {
+        throw new Error('Failed to extract adofai file')
+      }
+      
+      // Parse the level
+      const level = new ADOFAI.Level(adofaiContent, parser)
+      
+      level.on("parse:progress", (progressEvent: ParseProgressEvent): void => {
+        setLoadingProgress(10 + Math.round(progressEvent.percent * 0.5))
+        setLoadingStatus(getStageText(progressEvent.stage, t))
+      })
+      
+      level.on("load", async (loadedLevel: any): Promise<void> => {
+        loadedLevel.on("parse:progress", (progressEvent: ParseProgressEvent): void => {
+          setLoadingProgress(10 + Math.round(progressEvent.percent * 0.5))
+          setLoadingStatus(getStageText(progressEvent.stage, t))
+        })
+        // loadedLevel.calculateTilePosition() // Skip - using our own position calculation in PositionTrackManager
+        
+        setLoadingProgress(60)
+        setLoadingStatus(t("loading.buildingScene"))
+        
+        // Initialize player and synthesize hitsounds
+        await initializePlayerWithHitsounds(loadedLevel)
+        
+        setLoadingProgress(70)
+        
+        // Auto-load audio if specified in settings
+        const settings = loadedLevel.settings || {}
+        const songFilename = settings.songFilename
+        if (songFilename) {
+          // Try to find the audio file in ZIP
+          const audioExtensions = ['.mp3', '.ogg', '.wav', '.m4a', '.flac']
+          for (const ext of audioExtensions) {
+            const audioFile = files.find(f => {
+              const name = f.toLowerCase()
+              const songName = songFilename.toLowerCase()
+              // Match exact filename or with extension
+              return name === songName || 
+                     name === songName + ext ||
+                     name.endsWith('/' + songName) ||
+                     name.endsWith('/' + songName + ext) ||
+                     // Match just the filename part if songFilename has path
+                     name.endsWith(songName.split('/').pop()?.toLowerCase() + ext)
+            })
+            
+            if (audioFile) {
+              console.log('[ZIP] Found audio file:', audioFile)
+              const audioBlob = await zip.file(audioFile)?.async('blob')
+              if (audioBlob && previewerRef.current) {
+                const audioUrl = URL.createObjectURL(audioBlob)
+                previewerRef.current.loadMusic(audioUrl)
+                window.showNotification?.("info", t("editor.notifications.audioAutoLoaded"))
+                break
+              }
+            }
+          }
+        }
+        
+        setLoadingProgress(80)
+        
+        // Auto-load decoration images
+        // Collect all decoration image filenames from the level
+        const decorationImages = new Set<string>()
+        
+        // Check root decorations
+        const rootDecorations = loadedLevel.decorations || loadedLevel.__decorations || []
+        rootDecorations.forEach((dec: any) => {
+          if (dec.decorationImage) {
+            decorationImages.add(dec.decorationImage)
+          }
+        })
+        
+        // Check tile decorations
+        const tiles = loadedLevel.tiles || []
+        tiles.forEach((tile: any) => {
+          if (tile.addDecorations) {
+            tile.addDecorations.forEach((dec: any) => {
+              if (dec.decorationImage) {
+                decorationImages.add(dec.decorationImage)
+              }
+            })
+          }
+        })
+        
+        console.log('[ZIP] Decoration images needed:', Array.from(decorationImages))
+        
+        // Load decoration images from ZIP
+        const imageExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg']
+        let loadedImages = 0
+        
+        for (const imageName of decorationImages) {
+          // Find matching image file in ZIP
+          for (const ext of imageExtensions) {
+            const imageFile = files.find(f => {
+              const name = f.toLowerCase()
+              const targetName = imageName.toLowerCase()
+              // Flexible matching
+              return name === targetName ||
+                     name === targetName + ext ||
+                     name.endsWith('/' + targetName) ||
+                     name.endsWith('/' + targetName + ext) ||
+                     // Match just filename
+                     name.endsWith('/' + imageName.split('/').pop()?.toLowerCase() + ext) ||
+                     name.endsWith(imageName.split('/').pop()?.toLowerCase() + ext)
+            })
+            
+            if (imageFile) {
+              console.log('[ZIP] Found decoration image:', imageFile)
+              const imageBlob = await zip.file(imageFile)?.async('blob')
+              if (imageBlob && previewerRef.current?.registerDecorationImage) {
+                const imageUrl = URL.createObjectURL(imageBlob)
+                const filename = imageName.split('/').pop() || imageName
+                previewerRef.current.registerDecorationImage(filename, imageUrl)
+                loadedImages++
+              }
+              break
+            }
+          }
+        }
+        
+        // Preload decoration textures
+        if (loadedImages > 0 && previewerRef.current?.preloadDecorationTextures) {
+          setLoadingStatus(t("loading.preloadingTextures"))
+          await previewerRef.current.preloadDecorationTextures()
+          window.showNotification?.("info", `${t("editor.notifications.decorationsAutoLoaded").replace("{count}", String(loadedImages))}`)
+        }
+        
+        // Auto-load custom background images from settings and SetCustomBG events
+        const bgImages = new Set<string>()
+        
+        // Check level settings for bgImage
+        const bgImage = settings.bgImage
+        if (bgImage) {
+          bgImages.add(bgImage)
+        }
+        
+        // Check SetCustomBG events
+        const actions = loadedLevel.actions || []
+        actions.forEach((action: any) => {
+          if (action.eventType === 'SetCustomBG' && action.image) {
+            bgImages.add(action.image)
+          }
+        })
+        
+        console.log('[ZIP] Custom BG images needed:', Array.from(bgImages))
+        
+        // Load custom background images from ZIP
+        for (const bgImageName of bgImages) {
+          for (const ext of imageExtensions) {
+            const imageFile = files.find(f => {
+              const name = f.toLowerCase()
+              const targetName = bgImageName.toLowerCase()
+              return name === targetName ||
+                     name === targetName + ext ||
+                     name.endsWith('/' + targetName) ||
+                     name.endsWith('/' + targetName + ext) ||
+                     name.endsWith('/' + bgImageName.split('/').pop()?.toLowerCase() + ext) ||
+                     name.endsWith(bgImageName.split('/').pop()?.toLowerCase() + ext)
+            })
+            
+            if (imageFile) {
+              console.log('[ZIP] Found custom BG image:', imageFile)
+              const imageBlob = await zip.file(imageFile)?.async('blob')
+              if (imageBlob && previewerRef.current?.registerCustomBGImage) {
+                const imageUrl = URL.createObjectURL(imageBlob)
+                const filename = bgImageName.split('/').pop() || bgImageName
+                previewerRef.current.registerCustomBGImage(filename, imageUrl)
+              }
+              break
+            }
+          }
+        }
+        
+        setLoadingProgress(100)
+        window.showNotification?.("success", t("editor.notifications.zipLoadSuccess"))
+        setIsLoading(false)
+        setLoadingProgress(0)
+        setLoadingStatus("")
+      })
+      
+      await level.load()
+      
+    } catch (error) {
+      console.error('[ZIP] Loading error:', error)
+      window.showNotification?.("error", `${t("editor.notifications.zipLoadError")}: ${error}`)
+      setIsLoading(false)
+      setLoadingProgress(0)
+      setLoadingStatus("")
+    }
+  }
+
   // 文件加载处理
   const handleFileLoad = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>): void => {
@@ -324,6 +558,19 @@ export function useFileHandlers({
           const arrayBuffer = e.target?.result as ArrayBuffer
           const fileSize = arrayBuffer?.byteLength || 0
           console.log('[DEBUG] ArrayBuffer size:', fileSize)
+          
+          // Check if file is a ZIP archive
+          const fileName = file.name.toLowerCase()
+          const isZip = fileName.endsWith('.zip') || 
+                        file.type === 'application/zip' || 
+                        file.type === 'application/x-zip-compressed' ||
+                        file.type === 'application/x-zip'
+          
+          if (isZip) {
+            console.log('[DEBUG] Detected ZIP file')
+            await loadFromZip(arrayBuffer)
+            return
+          }
           
           // 判断是否为超大文件 (>90MB) 或大文件 (>400MB)
           const isVeryLargeFile = fileSize > VERY_LARGE_FILE_THRESHOLD
@@ -416,6 +663,77 @@ export function useFileHandlers({
     [previewerRef]
   )
 
+  // 装饰图片加载处理（支持多选）
+  const handleDecorationLoad = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>): void => {
+      const files = event.target.files
+      if (!files || files.length === 0) return
+
+      if (!previewerRef.current) {
+        window.showNotification?.("warning", "Please load a level first")
+        return
+      }
+
+      // Register each decoration image
+      const loadedFiles: string[] = []
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i]
+        const url = URL.createObjectURL(file)
+        const filename = file.name
+        
+        // Register with decoration manager
+        if (previewerRef.current.registerDecorationImage) {
+          previewerRef.current.registerDecorationImage(filename, url)
+          loadedFiles.push(filename)
+        }
+      }
+
+      if (loadedFiles.length > 0) {
+        // Preload textures asynchronously
+        if (previewerRef.current.preloadDecorationTextures) {
+          previewerRef.current.preloadDecorationTextures().then((count) => {
+            window.showNotification?.("success", `Loaded ${loadedFiles.length} decoration image(s), ${count} textures preloaded`)
+          })
+        } else {
+          window.showNotification?.("success", `Loaded ${loadedFiles.length} decoration image(s)`)
+        }
+      }
+    },
+    [previewerRef]
+  )
+
+  // 背景图片加载处理
+  const handleBGImageLoad = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>): void => {
+      const files = event.target.files
+      if (!files || files.length === 0) return
+
+      if (!previewerRef.current) {
+        window.showNotification?.("warning", "Please load a level first")
+        return
+      }
+
+      // Register each background image
+      const loadedFiles: string[] = []
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i]
+        const url = URL.createObjectURL(file)
+        const filename = file.name
+        
+        // Register with player for SetCustomBG events
+        if (previewerRef.current.registerCustomBGImage) {
+          previewerRef.current.registerCustomBGImage(filename, url)
+          loadedFiles.push(filename)
+        }
+      }
+
+      if (loadedFiles.length > 0) {
+        window.showNotification?.("success", `Loaded ${loadedFiles.length} background image(s): ${loadedFiles.join(', ')}`)
+      }
+    },
+    [previewerRef]
+  )
+
   // 导出文件功能
   const handleExport = useCallback((): void => {
     if (!previewerRef.current) {
@@ -446,6 +764,8 @@ export function useFileHandlers({
     handleFileLoad,
     handleAudioLoad,
     handleVideoLoad,
+    handleDecorationLoad,
+    handleBGImageLoad,
     handleExport
   }
 }

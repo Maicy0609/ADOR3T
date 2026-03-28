@@ -45,6 +45,8 @@ export function useEditorState() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const audioInputRef = useRef<HTMLInputElement>(null)
   const videoInputRef = useRef<HTMLInputElement>(null)
+  const decorationInputRef = useRef<HTMLInputElement>(null)
+  const bgImageInputRef = useRef<HTMLInputElement>(null)
   const previewerRef = useRef<Player | null>(null)
   
   // State
@@ -58,6 +60,7 @@ export function useEditorState() {
   const [playModeActive, setPlayModeActive] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [showExitDialog, setShowExitDialog] = useState(false)
+  const [showVideoImportDialog, setShowVideoImportDialog] = useState(false)
   
   // Hooks
   const navigate = useNavigate()
@@ -112,7 +115,7 @@ export function useEditorState() {
   }, [settings])
 
   // File handlers
-  const { handleFileLoad, handleAudioLoad, handleVideoLoad, handleExport } = useFileHandlers({
+  const { handleFileLoad, handleAudioLoad, handleVideoLoad, handleDecorationLoad, handleBGImageLoad, handleExport } = useFileHandlers({
     setIsLoading,
     setLoadingProgress,
     setLoadingStatus,
@@ -125,6 +128,28 @@ export function useEditorState() {
     infoRef,
     previewerRef
   })
+
+  // 视频按钮点击处理 - 显示选择对话框
+  const handleVideoButtonClick = useCallback((): void => {
+    setShowVideoImportDialog(true)
+  }, [])
+
+  // 选择导入视频背景
+  const handleImportVideoBackground = useCallback((): void => {
+    setShowVideoImportDialog(false)
+    videoInputRef.current?.click()
+  }, [])
+
+  // 选择导入装饰图片
+  const handleImportDecoration = useCallback((): void => {
+    setShowVideoImportDialog(false)
+    decorationInputRef.current?.click()
+  }, [])
+
+  // 取消视频导入对话框
+  const handleCancelVideoImport = useCallback((): void => {
+    setShowVideoImportDialog(false)
+  }, [])
 
   // 播放功能
   const handlePlay = useCallback((): void => {
@@ -373,6 +398,8 @@ export function useEditorState() {
     fileInputRef,
     audioInputRef,
     videoInputRef,
+    decorationInputRef,
+    bgImageInputRef,
     previewerRef,
     
     // State
@@ -386,6 +413,7 @@ export function useEditorState() {
     playModeActive,
     settingsOpen,
     showExitDialog,
+    showVideoImportDialog,
     isDark,
     i18nMounted,
     settings,
@@ -397,12 +425,18 @@ export function useEditorState() {
     handleFileLoad,
     handleAudioLoad,
     handleVideoLoad,
+    handleDecorationLoad,
+    handleBGImageLoad,
     handleExport,
     handlePlay,
     handleExitPlayMode,
     handleBackClick,
     handleConfirmExit,
     handleCancelExit,
+    handleVideoButtonClick,
+    handleImportVideoBackground,
+    handleImportDecoration,
+    handleCancelVideoImport,
     
     // Translation
     t

@@ -6,6 +6,7 @@
 
 // Static import of audio data JSON (Vite handles this at build time)
 import audioData from '../../sounds/audio_data.json';
+import { getSharedAudioContext } from './HTMLAudioMusic';
 
 // Threshold for switching to real-time mode (to avoid extremely long synthesis)
 const REALTIME_MODE_THRESHOLD = 500000; // 500k hits - use real-time mode above this
@@ -89,16 +90,7 @@ const hitsoundKeyMap: Record<HitsoundType, string> = {
 };
 
 // Audio buffer cache using AudioContext
-let audioContext: AudioContext | null = null;
 const audioBufferCache: Map<string, AudioBuffer> = new Map();
-
-// Get or create AudioContext
-export function getAudioContext(): AudioContext {
-  if (!audioContext) {
-    audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-  }
-  return audioContext;
-}
 
 // Load audio buffer from dataURL in JSON
 async function loadAudioBuffer(key: string): Promise<AudioBuffer | null> {
@@ -129,7 +121,7 @@ async function loadAudioBuffer(key: string): Promise<AudioBuffer | null> {
       uint8Array[i] = binary.charCodeAt(i);
     }
     
-    const audioBuffer = await getAudioContext().decodeAudioData(arrayBuffer);
+    const audioBuffer = await getSharedAudioContext().decodeAudioData(arrayBuffer);
     audioBufferCache.set(key, audioBuffer);
     console.log(`[HitsoundManager] Loaded "${key}" from JSON dataURL`);
     return audioBuffer;
@@ -172,7 +164,7 @@ export class HitsoundManager {
   
   private getGainNode(): GainNode {
     if (!this.gainNode) {
-      const ctx = getAudioContext();
+      const ctx = getSharedAudioContext();
       this.gainNode = ctx.createGain();
       this.gainNode.connect(ctx.destination);
     }
@@ -293,7 +285,7 @@ export class HitsoundManager {
       return;
     }
     
-    const ctx = getAudioContext();
+    const ctx = getSharedAudioContext();
     const sampleRate = ctx.sampleRate;
     const hitBuffer = this.currentBuffer;
     const hitDuration = hitBuffer.duration;
@@ -512,7 +504,7 @@ export class HitsoundManager {
     
     this.stop();
     
-    const ctx = getAudioContext();
+    const ctx = getSharedAudioContext();
     if (ctx.state === 'suspended') {
       console.log('[HitsoundManager] Resuming suspended AudioContext');
       ctx.resume();
@@ -550,7 +542,7 @@ export class HitsoundManager {
   private startRealtimePlayback(delay: number): void {
     console.log('[HitsoundManager] Starting real-time playback mode');
     
-    const ctx = getAudioContext();
+    const ctx = getSharedAudioContext();
     this.isPlaying = true;
     this.playbackStartTime = ctx.currentTime + delay;
     this.nextHitIndex = 0;
@@ -565,7 +557,7 @@ export class HitsoundManager {
   private scheduleHitsounds(): void {
     if (!this.isPlaying || !this.currentBuffer) return;
     
-    const ctx = getAudioContext();
+    const ctx = getSharedAudioContext();
     const currentTime = ctx.currentTime;
     const elapsed = currentTime - this.playbackStartTime;
     
@@ -622,7 +614,7 @@ export class HitsoundManager {
     
     this.stop();
     
-    const ctx = getAudioContext();
+    const ctx = getSharedAudioContext();
     if (ctx.state === 'suspended') ctx.resume();
     
     if (this.useRealtimeMode) {

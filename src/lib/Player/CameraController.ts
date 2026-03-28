@@ -287,7 +287,22 @@ export class CameraController {
         // Setup Transition
         // Use the event floor's BPM for duration calculation
         const eventBPM = (this.tileBPM && this.tileBPM[floorIndex]) || 100;
-        const durationSeconds = duration * (60 / eventBPM);
+
+        // 高速BPM检测：如果BPM>20000且relativeTo为Player，强制duration=0实现瞬间移动
+        let effectiveDuration = duration;
+        if (eventBPM > 20000) {
+            // 检查relativeTo是否为Player
+            const isPlayerMode = relativeTo === undefined ||
+                                relativeTo === 'Player' ||
+                                (typeof relativeTo === 'number' && relativeTo === 0) ||
+                                nextRelativeTo === 'Player';
+            if (isPlayerMode) {
+                effectiveDuration = 0;
+                console.log(`[CameraController] High BPM detected (${eventBPM}), forcing instant camera move for Player mode`);
+            }
+        }
+
+        const durationSeconds = effectiveDuration * (60 / eventBPM);
 
         if (durationSeconds <= 0) {
             this.cameraTransition.active = false;

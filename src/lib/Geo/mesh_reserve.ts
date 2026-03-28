@@ -52,17 +52,137 @@ const createCircle = (
 
 interface MeshData { vertices: number[]; faces: number[]; colors: number[]; }
 
+const createGemsMesh = (
+    startAngle: number,
+    endAngle: number,
+    length: number,
+    width: number,
+    outline: number
+): MeshData => {
+    const vertices: number[] = [];
+    const faces: number[] = [];
+    const colors: number[] = [];
+
+    const m11 = Math.cos((startAngle / 180) * Math.PI);
+    const m12 = Math.sin((startAngle / 180) * Math.PI);
+    const m21 = Math.cos((endAngle / 180) * Math.PI);
+    const m22 = Math.sin((endAngle / 180) * Math.PI);
+
+    const blackColor: Color = { r: 0, g: 0, b: 0 };
+    const whiteColor: Color = { r: 1, g: 1, b: 1 };
+
+    // Create hexagon outline (6 vertices at 60-degree intervals)
+    const hexRadius = width;
+    const hexOutlineRadius = hexRadius + outline;
+
+    // Outer hexagon (black outline)
+    {
+        const count = vertices.length / 3;
+        for (let i = 0; i < 6; i++) {
+            const angle = (Math.PI / 3) * i; // 60 degrees
+            const x = Math.cos(angle) * hexOutlineRadius;
+            const y = Math.sin(angle) * hexOutlineRadius;
+            vertices.push(x, y, 0);
+            colors.push(blackColor.r, blackColor.g, blackColor.b);
+        }
+
+        // Create triangles for hexagon
+        for (let i = 0; i < 6; i++) {
+            const next = (i + 1) % 6;
+            faces.push(count, count + i, count + next);
+        }
+    }
+
+    // Inner hexagon (white)
+    {
+        const count = vertices.length / 3;
+        const hexInnerRadius = hexRadius - outline;
+        for (let i = 0; i < 6; i++) {
+            const angle = (Math.PI / 3) * i;
+            const x = Math.cos(angle) * hexInnerRadius;
+            const y = Math.sin(angle) * hexInnerRadius;
+            vertices.push(x, y, 0);
+            colors.push(whiteColor.r, whiteColor.g, whiteColor.b);
+        }
+
+        // Create triangles for inner hexagon
+        for (let i = 0; i < 6; i++) {
+            const next = (i + 1) % 6;
+            faces.push(count, count + i, count + next);
+        }
+    }
+
+    // Add end caps for outline (connecting to tile direction)
+    {
+        const count = vertices.length / 3;
+        vertices.push(
+            length * m11 + width * m12, length * m12 - width * m11, 0,
+            length * m11 - width * m12, length * m12 + width * m11, 0,
+            -width * m12, width * m11, 0,
+            width * m12, -width * m11, 0,
+            length * m21 + width * m22, length * m22 - width * m21, 0,
+            length * m21 - width * m22, length * m22 + width * m21, 0,
+            -width * m22, width * m21, 0,
+            width * m22, -width * m21, 0
+        );
+
+        for (let i = 0; i < 8; i++) {
+            colors.push(blackColor.r, blackColor.g, blackColor.b);
+        }
+
+        faces.push(count, count + 1, count + 2);
+        faces.push(count + 2, count + 3, count);
+        faces.push(count + 4, count + 5, count + 6);
+        faces.push(count + 6, count + 7, count + 4);
+    }
+
+    // Add end caps for inner part
+    {
+        const count = vertices.length / 3;
+        const innerLength = length - outline;
+        const innerWidth = width - outline;
+        vertices.push(
+            innerLength * m11 + innerWidth * m12, innerLength * m12 - innerWidth * m11, 0,
+            innerLength * m11 - innerWidth * m12, innerLength * m12 + innerWidth * m11, 0,
+            -innerWidth * m12, innerWidth * m11, 0,
+            innerWidth * m12, -innerWidth * m11, 0,
+            innerLength * m21 + innerWidth * m22, innerLength * m22 - innerWidth * m21, 0,
+            innerLength * m21 - innerWidth * m22, innerLength * m22 + innerWidth * m21, 0,
+            -innerWidth * m22, innerWidth * m21, 0,
+            innerWidth * m22, -innerWidth * m21, 0
+        );
+
+        for (let i = 0; i < 8; i++) {
+            colors.push(whiteColor.r, whiteColor.g, whiteColor.b);
+        }
+
+        faces.push(count, count + 1, count + 2);
+        faces.push(count + 2, count + 3, count);
+        faces.push(count + 4, count + 5, count + 6);
+        faces.push(count + 6, count + 7, count + 4);
+    }
+
+    return { vertices, faces, colors };
+};
+
 const createTrackMesh = (
     startAngle: number,
     endAngle: number,
     isMidspin: boolean = false,
     length: number = TILE_LENGTH,
     width: number = TILE_WIDTH,
-    outline: number = OUTLINE
+    outline: number = OUTLINE,
+    trackStyle: string = "Standard"
 ): MeshData => {
     if (isMidspin) {
         return createMidSpinMesh(startAngle);
     }
+
+    // For Gems track style, generate hexagon geometry
+    if (trackStyle === "Gems") {
+        return createGemsMesh(startAngle, endAngle, length, width, outline);
+    }
+
     return createTileMesh(startAngle, endAngle, length, width, outline);
 };
 
@@ -466,6 +586,6 @@ const createTileMesh = (
 
 
 // Export interface and functions
-export { fmod, lerp, createCircle, createMidSpinMesh, createTileMesh };
+export { fmod, lerp, createCircle, createMidSpinMesh, createTileMesh, createGemsMesh };
 export type { MeshData };
 export default createTrackMesh;

@@ -7,6 +7,9 @@ export const translations = {
       calculatingTiles: "正在计算轨道位置...",
       buildingScene: "正在构建场景...",
       synthesizingHitsounds: "正在合成打拍音...",
+      extractingZip: "正在解压 ZIP 文件...",
+      preloadingTextures: "正在预加载装饰纹理...",
+      preparingLargeFile: "正在预处理大文件...",
       progress: "进度",
       tip: "大型关卡可能需要较长时间加载，请耐心等待",
       method: "加载方式",
@@ -79,6 +82,10 @@ export const translations = {
         noFileToExport: "没有可导出的文件!",
         noFileToPlay: "没有可播放的文件!",
         fileReadError: "文件读取失败!",
+        zipLoadSuccess: "ZIP 解压并加载成功!",
+        zipLoadError: "ZIP 加载失败!",
+        audioAutoLoaded: "已自动加载音频",
+        decorationsAutoLoaded: "已自动加载 {count} 张装饰图片",
       },
       info: {
         cameraPosition: "相机位置",
@@ -88,6 +95,12 @@ export const translations = {
       },
       status: {
         insider: "内测版",
+      },
+      videoImport: {
+        title: "导入媒体",
+        videoBackground: "导入视频背景",
+        decoration: "导入装饰图片（支持多选）",
+        bgImage: "导入背景图片（支持多选）",
       },
     },
     // 设置
@@ -172,6 +185,9 @@ export const translations = {
       calculatingTiles: "Calculating tile positions...",
       buildingScene: "Building scene...",
       synthesizingHitsounds: "Synthesizing hitsounds...",
+      extractingZip: "Extracting ZIP file...",
+      preloadingTextures: "Preloading decoration textures...",
+      preparingLargeFile: "Preparing large file...",
       progress: "Progress",
       tip: "Large levels may take longer to load, please wait patiently",
       method: "Method",
@@ -244,6 +260,10 @@ export const translations = {
         noFileToExport: "No file to export!",
         noFileToPlay: "No file to play!",
         fileReadError: "Failed to read file!",
+        zipLoadSuccess: "ZIP extracted and loaded successfully!",
+        zipLoadError: "Failed to load ZIP!",
+        audioAutoLoaded: "Audio loaded automatically",
+        decorationsAutoLoaded: "{count} decoration image(s) loaded automatically",
       },
       info: {
         cameraPosition: "Camera Position",
@@ -253,6 +273,12 @@ export const translations = {
       },
       status: {
         insider: "Insider",
+      },
+      videoImport: {
+        title: "Import Media",
+        videoBackground: "Import Video Background",
+        decoration: "Import Decoration Images (Multiple Selection)",
+        bgImage: "Import Background Images (Multiple Selection)",
       },
     },
     // Settings
@@ -337,6 +363,9 @@ export const translations = {
       calculatingTiles: "タイル位置を計算中...",
       buildingScene: "シーンを構築中...",
       synthesizingHitsounds: "ヒットサウンドを合成中...",
+      extractingZip: "ZIPファイルを展開中...",
+      preloadingTextures: "装飾テクスチャをプリロード中...",
+      preparingLargeFile: "大きなファイルを準備中...",
       progress: "進捗",
       tip: "大きなレベルは読み込みに時間がかかる場合があります",
       method: "読み込み方法",
@@ -409,6 +438,10 @@ export const translations = {
         noFileToExport: "エクスポートするファイルがありません！",
         noFileToPlay: "再生するファイルがありません！",
         fileReadError: "ファイルの読み取りに失敗しました！",
+        zipLoadSuccess: "ZIPの展開と読み込みに成功しました！",
+        zipLoadError: "ZIPの読み込みに失敗しました！",
+        audioAutoLoaded: "オーディオが自動的に読み込まれました",
+        decorationsAutoLoaded: "{count}枚の装飾画像が自動的に読み込まれました",
       },
       info: {
         cameraPosition: "カメラ位置",
@@ -418,6 +451,12 @@ export const translations = {
       },
       status: {
         insider: "インサイダー",
+      },
+      videoImport: {
+        title: "メディアをインポート",
+        videoBackground: "動画背景をインポート",
+        decoration: "装飾画像をインポート（複数選択可）",
+        bgImage: "背景画像をインポート（複数選択可）",
       },
     },
     // 設定

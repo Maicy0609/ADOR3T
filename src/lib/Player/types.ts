@@ -20,6 +20,9 @@ export interface IPlayer {
   setTargetFramerate(framerate: TargetFramerateType): void;
   setZoom(zoom: number): void;
   loadMusic(src: string): void;
+  registerDecorationImage?(filename: string, url: string): void;
+  registerCustomBGImage?(filename: string, url: string): void;
+  preloadDecorationTextures?(): Promise<number>;
 }
 
 export interface IMusic {
@@ -53,8 +56,60 @@ export interface IPlanet {
   dispose(): void;
 }
 
+/**
+ * Decoration placement type
+ */
+export type DecPlacementType = 'Tile' | 'Camera' | 'CameraAspect' | 'LastPosition';
+
+/**
+ * Decoration event from ADOFAI level file
+ */
+export interface IDecorationEvent {
+  eventType: 'AddDecoration' | 'AddText' | 'AddParticle' | 'AddObject';
+  floor?: number;
+  tag?: string;
+  decorationImage?: string;
+  decText?: string;
+  position?: [number, number];
+  positionOffset?: [number, number];
+  relativeTo?: DecPlacementType;
+  rotation?: number;
+  rotationOffset?: number;
+  scale?: [number, number];
+  parallax?: [number, number];
+  parallaxOffset?: [number, number];
+  depth?: number;
+  color?: string;
+  opacity?: number;
+  visible?: boolean;
+}
+
+/**
+ * MoveDecorations event from ADOFAI level file
+ */
+export interface IMoveDecorationsEvent {
+  eventType: 'MoveDecorations';
+  floor: number;
+  tag: string;
+  duration: number;
+  ease?: string;
+  angleOffset?: number;
+  positionOffset?: [number, number];
+  rotationOffset?: number;
+  scale?: [number, number];
+  color?: string;
+  opacity?: number;
+  parallax?: [number, number];
+  parallaxOffset?: [number, number];
+  depth?: number;
+  visible?: boolean;
+  relativeTo?: DecPlacementType;
+  decorationImage?: string;
+}
+
 export interface ILevelData {
   settings: any;
   tiles: any[];
   actions?: any[];
+  decorations?: IDecorationEvent[];
 }
