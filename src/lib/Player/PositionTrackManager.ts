@@ -33,13 +33,51 @@ export class PositionTrackManager {
     private levelData: any;
     private positionTrackEvents: Map<number, PositionTrackEvent[]>;
     private tileTransforms: Map<number, TileTransform>;
+    private tilePositions: Map<number, THREE.Vector2>; // Store base tile positions for relative calculations
 
     constructor(levelData: any) {
         this.levelData = levelData;
         this.positionTrackEvents = new Map();
         this.tileTransforms = new Map();
+        this.tilePositions = new Map();
 
         this.parsePositionTrackEvents();
+    }
+
+    /**
+     * Convert relativeTo to absolute tile ID (matches ADOFAI IDFromTile logic)
+     * @param relativeTo The relativeTo value: [offset, relativeToType]
+     * @param thisTileId The current tile ID (floor where event occurs)
+     * @returns Absolute tile ID
+     */
+    private IDFromTile(relativeTo: [number, string], thisTileId: number): number {
+        const offset = relativeTo[0];
+        const relativeToType = relativeTo[1];
+        const totalTiles = this.levelData.tiles.length;
+
+        let result: number;
+
+        switch (relativeToType) {
+            case 'ThisTile':
+            case '0':
+                result = thisTileId + offset;
+                break;
+            case 'Start':
+            case '1':
+                result = offset;
+                break;
+            case 'End':
+            case '2':
+                result = totalTiles - 1 + offset;
+                break;
+            default:
+                // Default to ThisTile
+                result = thisTileId + offset;
+                break;
+        }
+
+        // Clamp to valid range
+        return Math.max(0, Math.min(result, totalTiles - 1));
     }
 
     /**
@@ -96,10 +134,11 @@ export class PositionTrackManager {
         const transforms = new Map<number, TileTransform>();
         const tiles = this.levelData.tiles;
         const angleData = this.levelData.angleData || [];
-        
+        const TILE_SIZE = 1.0; // Tile size in world units (matches Re_ADOJAS system)
+
         // Start from (0, 0)
         let currentPos = new THREE.Vector2(0, 0);
-        
+
         // Cumulative values (vector in ADOFAI-Src)
         let cumulativeOffset = new THREE.Vector2(0, 0);
         let cumulativeRotation = 0;
@@ -119,6 +158,9 @@ export class PositionTrackManager {
             const angle2 = i === 0 ? 0 : (floats[i - 1] || 0);
 
             if (!isLastTile) {
+                // Store base tile position (startPos in ADOFAI)
+                const tileBasePos = currentPos.clone();
+
                 // Current tile transform (vector2 in ADOFAI-Src)
                 let tileOffset = cumulativeOffset.clone();
                 let tileRotation = cumulativeRotation;
@@ -136,8 +178,39 @@ export class PositionTrackManager {
 
                         // Apply position offset
                         if (event.positionOffset) {
-                            tileOffset.x += event.positionOffset[0];
-                            tileOffset.y += event.positionOffset[1];
+                            let offsetX = event.positionOffset[0] || 0;
+                            let offsetY = event.positionOffset[1] || 0;
+
+                            // Handle relativeTo
+                            if (event.relativeTo) {
+                                const targetTileId = this.IDFromTile(event.relativeTo, i);
+
+                                if (targetTileId !== i) {
+                                    // Get the target tile's base position
+                                    const targetBasePos = this.tilePositions.get(targetTileId);
+                                    if (targetBasePos) {
+                                        // Calculate position difference: targetBasePos + targetOffset - currentBasePos - currentOffset
+                                        // Matches ADOFAI: scrFloor3.startPos + scrFloor3.offsetPos - (scrFloor2.startPos + vector)
+                                        const targetTransform = transforms.get(targetTileId);
+                                        const targetOffsetPos = targetTransform ? 
+                                            new THREE.Vector2(
+                                                targetTransform.position.x - targetBasePos.x,
+                                                targetTransform.position.y - targetBasePos.y
+                                            ) : new THREE.Vector2(0, 0);
+
+                                        const relativeOffset = new THREE.Vector2(
+                                            targetBasePos.x + targetOffsetPos.x - tileBasePos.x - tileOffset.x,
+                                            targetBasePos.y + targetOffsetPos.y - tileBasePos.y - tileOffset.y
+                                        );
+
+                                        tileOffset.add(relativeOffset);
+                                    }
+                                }
+                            }
+
+                            // Multiply by TILE_SIZE (matches ADOFAI)
+                            tileOffset.x += offsetX * TILE_SIZE;
+                            tileOffset.y += offsetY * TILE_SIZE;
                         }
 
                         // Apply rotation
@@ -183,6 +256,9 @@ export class PositionTrackManager {
                     opacity: tileOpacity,
                     stickToFloors: tileStickToFloors
                 });
+
+                // Store base tile position for relative calculations
+                this.tilePositions.set(i, tileBasePos);
             }
 
             // Update position for next tile (based on angle)
@@ -215,5 +291,6 @@ export class PositionTrackManager {
     public dispose(): void {
         this.positionTrackEvents.clear();
         this.tileTransforms.clear();
+        this.tilePositions.clear();
     }
 }

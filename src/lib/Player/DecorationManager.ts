@@ -178,16 +178,25 @@ export class DecorationManager {
      * Initialize decorations from level data
      */
     public init(): void {
+        console.log('[DecorationManager] Initializing decorations...');
         this.clear();
         
         // Parse AddDecoration events from decorations array (if exists at root level)
         const rootDecorations = this.levelData.decorations || (this.levelData as any).__decorations;
+        let decorationCount = 0;
+        
         if (rootDecorations && Array.isArray(rootDecorations)) {
+            console.log(`[DecorationManager] Found ${rootDecorations.length} root-level decorations`);
             rootDecorations.forEach((dec: any, index: number) => {
                 if (dec.eventType === 'AddDecoration') {
-                    this.createDecoration(dec, index);
+                    const result = this.createDecoration(dec, decorationCount++);
+                    if (result) {
+                        console.log(`[DecorationManager] Created decoration: ${result.config.id} with image: ${result.config.decorationImage}`);
+                    } else {
+                        console.warn(`[DecorationManager] Failed to create decoration at index ${index}`);
+                    }
                 } else if (dec.eventType === 'AddText') {
-                    this.createTextDecoration(dec, index);
+                    this.createTextDecoration(dec, decorationCount++);
                 }
             });
         }
@@ -195,23 +204,29 @@ export class DecorationManager {
         // Parse AddDecoration events from tiles.addDecorations (ADOFAI format)
         const tiles = this.levelData.tiles;
         if (tiles && Array.isArray(tiles)) {
-            let decoIndex = this.decorations.size;
+            let tileDecoCount = 0;
             tiles.forEach((tile: any, tileIndex: number) => {
                 if (tile.addDecorations && Array.isArray(tile.addDecorations)) {
                     tile.addDecorations.forEach((dec: any) => {
                         // Add floor property if not present
                         const decWithFloor = { ...dec, floor: dec.floor ?? tileIndex };
                         if (dec.eventType === 'AddDecoration') {
-                            this.createDecoration(decWithFloor, decoIndex++);
+                            const result = this.createDecoration(decWithFloor, decorationCount++);
+                            if (result) {
+                                tileDecoCount++;
+                                console.log(`[DecorationManager] Created tile decoration: ${result.config.id} on tile ${tileIndex}`);
+                            }
                         } else if (dec.eventType === 'AddText') {
-                            this.createTextDecoration(decWithFloor, decoIndex++);
+                            this.createTextDecoration(decWithFloor, decorationCount++);
                         }
                     });
                 }
             });
+            console.log(`[DecorationManager] Created ${tileDecoCount} tile-level decorations`);
         }
         
-        console.log('[DecorationManager] Created decorations:', this.decorations.size);
+        console.log(`[DecorationManager] Total decorations created: ${this.decorations.size}`);
+        console.log('[DecorationManager] Registered images:', Array.from(this.customImages.keys()));
         
         // Always build events timeline (MoveDecorations are in actions)
         this.buildDecorationEventsTimeline();
@@ -291,15 +306,19 @@ export class DecorationManager {
         }
         
         // Load texture
+        let textureAvailable = false;
+        
         if (config.decorationImage) {
-            const textureAvailable = this.loadDecorationTexture(config.decorationImage, decoration);
+            textureAvailable = this.loadDecorationTexture(config.decorationImage, decoration);
             if (!textureAvailable) {
-                // Texture not found, do not create decoration
+                // Texture not found, do not create decoration to save performance
+                console.log(`[DecorationManager] Skipping decoration '${config.id}': texture '${config.decorationImage}' not found`);
                 decoration.dispose();
                 return null;
             }
         } else {
-            // 没有指定图像，不创建装饰物以提升性能
+            // 没有指定图像 - 不创建装饰物以节省性能
+            console.log(`[DecorationManager] Skipping decoration '${config.id}': no image specified`);
             decoration.dispose();
             return null;
         }
@@ -406,20 +425,28 @@ export class DecorationManager {
         const customUrl = this.findCustomImageUrl(filename);
         if (customUrl && !this.texturesLoading.has(filename)) {
             // Load now if not already loading
+            console.log(`[DecorationManager] Loading texture for '${filename}' on demand`);
             this.loadTextureAsync(filename).then(() => {
                 const texture = this.textureCache.get(filename);
                 if (texture) {
+                    console.log(`[DecorationManager] Applying texture to decoration '${decoration.config.id}'`);
                     decoration.setupVisual(texture);
+                } else {
+                    console.warn(`[DecorationManager] Texture load failed for '${filename}', disposing decoration`);
+                    decoration.dispose();
+                    this.decorations.delete(decoration.config.id!);
                 }
             });
-            // Texture is loading, allow decoration creation
-            return true;
+            // Texture is loading, but we don't create decoration until it's loaded
+            // Return false to indicate texture is not yet available
+            return false;
         }
 
-        // No image found, do not create decoration
-        console.log(`[DecorationManager] No texture found for '${filename}', skipping decoration creation`);
+        // No image found at all, do not create decoration
+        console.log(`[DecorationManager] No texture found for '${filename}', skipping decoration`);
         return false;
-    }
+
+            }
     
     /**
      * Get or create cached placeholder texture
@@ -513,6 +540,30 @@ export class DecorationManager {
         this.texturesLoaded.delete(filename);
     }
     
+    /**
+     * Get placeholder texture for decorations without images
+     */
+    private getPlaceholderTexture(): THREE.Texture {
+        if (!this.placeholderTexture) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 64;
+            canvas.height = 64;
+            const ctx = canvas.getContext('2d')!;
+            
+            // Create a simple pattern
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, 64, 64);
+            ctx.fillStyle = '#ff0000';
+            ctx.beginPath();
+            ctx.arc(32, 32, 20, 0, Math.PI * 2);
+            ctx.fill();
+            
+            this.placeholderTexture = new THREE.CanvasTexture(canvas);
+            this.placeholderTexture.colorSpace = THREE.SRGBColorSpace;
+        }
+        return this.placeholderTexture;
+    }
+
     /**
      * Get base name from filename (strip path)
      */
@@ -657,11 +708,12 @@ export class DecorationManager {
                 const secPerBeat = 60 / bpm;
                 const duration = (event.duration || 0) * secPerBeat;
 
-                // Build target values
+                // Build target values (match ADOFAI ffxMoveDecorationsPlus.cs)
                 const targetValues: Partial<DecorationConfig> = {};
 
                 if (event.positionOffset !== undefined) {
                     const pos = this.parseVector2(event.positionOffset, [0, 0]);
+                    // ADOFAI: this.targetPos = tileSize * vector2
                     targetValues.positionOffset = [pos[0] * this.tileSize, pos[1] * this.tileSize];
                 }
 
@@ -670,7 +722,9 @@ export class DecorationManager {
                 }
 
                 if (event.scale !== undefined) {
-                    targetValues.scale = this.parseVector2(event.scale, [100, 100]);
+                    const scale = this.parseVector2(event.scale, [100, 100]);
+                    // ADOFAI: this.targetScaleV2 = (Vector2)evnt.data["scale"] / 100f
+                    targetValues.scale = [scale[0] / 100, scale[1] / 100];
                 }
 
                 if (event.color !== undefined) {
@@ -678,16 +732,26 @@ export class DecorationManager {
                 }
 
                 if (event.opacity !== undefined) {
-                    targetValues.opacity = event.opacity;
+                    // ADOFAI: this.targetOpacity = evnt.GetFloat("opacity") / 100f
+                    targetValues.opacity = event.opacity / 100;
                 }
 
                 if (event.parallax !== undefined) {
-                    targetValues.parallax = this.parseVector2(event.parallax, [100, 100]);
+                    const parallax = this.parseVector2(event.parallax, [100, 100]);
+                    // ADOFAI: dec.parallax.multiplier = this.targetParallax / 100f
+                    targetValues.parallax = [parallax[0] / 100, parallax[1] / 100];
                 }
 
                 if (event.parallaxOffset !== undefined) {
                     const po = this.parseVector2(event.parallaxOffset, [0, 0]);
+                    // ADOFAI: this.targetParallaxOffset = tileSize * vector
                     targetValues.parallaxOffset = [po[0] * this.tileSize, po[1] * this.tileSize];
+                }
+
+                if (event.pivotOffset !== undefined) {
+                    const piv = this.parseVector2(event.pivotOffset, [0, 0]);
+                    // ADOFAI: this.targetPivot = tileSize * vector3
+                    targetValues.pivotOffset = [piv[0] * this.tileSize, piv[1] * this.tileSize];
                 }
 
                 if (event.depth !== undefined) {

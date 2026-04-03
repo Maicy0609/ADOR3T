@@ -27,6 +27,7 @@ export default defineConfig(({ mode, command }) => {
     base: base,
     worker: {
       format: 'es',
+      inline: 'no-fallback', // 将 worker 代码内联到主 bundle 中，支持静态页面部署
       rollupOptions: {
         output: {
           manualChunks: {
