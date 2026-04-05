@@ -79,7 +79,7 @@ export class Player implements IPlayer {
   private boundHandlers: { [key: string]: EventListenerOrEventListenerObject } = {};
 
   // Stats callback
-  private onStatsUpdate: ((stats: { fps: number; time: number; tileIndex: number }) => void) | null = null;
+  private onStatsUpdate: ((stats: { fps: number; time: number; tileIndex: number; tileBPM: number[]; tileStartTimes: number[]; totalTiles: number }) => void) | null = null;
   private frameCount: number = 0;
   private lastTime: number = 0;
 
@@ -973,7 +973,7 @@ export class Player implements IPlayer {
     this.initialPinchDistance = 0;
   }
 
-  public setStatsCallback(callback: (stats: { fps: number; time: number; tileIndex: number }) => void): void {
+  public setStatsCallback(callback: (stats: { fps: number; time: number; tileIndex: number; tileBPM: number[]; tileStartTimes: number[]; totalTiles: number }) => void): void {
     this.onStatsUpdate = callback;
   }
 
@@ -1041,20 +1041,24 @@ export class Player implements IPlayer {
       
       this.renderPlayer(delta);
       
-      // FPS calculation
+      // FPS calculation (update every 500ms)
       frameCount++;
       if (time - fpsTime >= 500) {
         fps = Math.round((frameCount * 1000) / (time - fpsTime));
         frameCount = 0;
         fpsTime = time;
-        
-        if (this.onStatsUpdate) {
-          this.onStatsUpdate({
-            fps,
-            time: this.elapsedTime,
-            tileIndex: this.currentTileIndex
-          });
-        }
+      }
+      
+      // Game state callback (every frame for real-time responsiveness)
+      if (this.onStatsUpdate) {
+        this.onStatsUpdate({
+          fps,
+          time: this.elapsedTime,
+          tileIndex: this.currentTileIndex,
+          tileBPM: this.tileBPM,
+          tileStartTimes: this.tileStartTimes,
+          totalTiles: this.levelData.tiles.length
+        });
       }
       
       try {
@@ -2148,7 +2152,7 @@ export class Player implements IPlayer {
       }
     } else {
       // Fallback to original position calculation
-      tileMesh.position.set(x, y, zLevel * 0.001);
+      tileMesh.position.set(x, y, zLevel * 0.00001);
     }
 
     tileMesh.castShadow = true;
