@@ -1041,23 +1041,24 @@ export class Player implements IPlayer {
       
       this.renderPlayer(delta);
       
-      // FPS calculation
+      // FPS calculation (update every 500ms)
       frameCount++;
       if (time - fpsTime >= 500) {
         fps = Math.round((frameCount * 1000) / (time - fpsTime));
         frameCount = 0;
         fpsTime = time;
-        
-        if (this.onStatsUpdate) {
-          this.onStatsUpdate({
-            fps,
-            time: this.elapsedTime,
-            tileIndex: this.currentTileIndex,
-            tileBPM: this.tileBPM,
-            tileStartTimes: this.tileStartTimes,
-            totalTiles: this.levelData.tiles.length
-          });
-        }
+      }
+      
+      // Game state callback (every frame for real-time responsiveness)
+      if (this.onStatsUpdate) {
+        this.onStatsUpdate({
+          fps,
+          time: this.elapsedTime,
+          tileIndex: this.currentTileIndex,
+          tileBPM: this.tileBPM,
+          tileStartTimes: this.tileStartTimes,
+          totalTiles: this.levelData.tiles.length
+        });
       }
       
       try {
