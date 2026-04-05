@@ -9,6 +9,8 @@ import { Player } from "@/lib/Player/Player"
 import { ILevelData } from "@/lib/Player/types"
 import example from "@/lib/example/line.json"
 import { useFileHandlers } from "./useFileHandlers"
+import { useGameMetrics } from "./useGameMetrics"
+import type { DisplayMetrics } from "./useGameMetrics"
 
 // 类型导入
 type ParseProgressEvent = Structure.ParseProgressEvent;
@@ -16,6 +18,19 @@ type ParseProgressEvent = Structure.ParseProgressEvent;
 // 使用 StringParser 作为解析器
 const StringParser = Parsers.StringParser
 const parser = new StringParser()
+
+/**
+ * Render game metrics to HTML string for the info panel.
+ * Only called when metrics data actually changes (see useGameMetrics).
+ */
+function renderMetricsHTML(m: DisplayMetrics): string {
+  return [
+    `<div>TBPM | ${m.tbpm.toFixed(2)}</div>`,
+    `<div>CBPM | ${m.cbpm.toFixed(2)}</div>`,
+    `<div>Map Time | ${m.mapTime}</div>`,
+    `<div>Tiles | ${m.tiles}</div>`,
+  ].join("\n")
+}
 
 // 获取加载阶段的显示文本
 const getStageText = (stage: ParseProgressEvent['stage'], t: (key: string) => string): string => {
@@ -48,6 +63,10 @@ export function useEditorState() {
   const decorationInputRef = useRef<HTMLInputElement>(null)
   const bgImageInputRef = useRef<HTMLInputElement>(null)
   const previewerRef = useRef<Player | null>(null)
+
+  // Game metrics (TBPM, CBPM, Map Time, Tiles progress)
+  const { update: updateMetrics, reset: resetMetrics } = useGameMetrics()
+  const metricsRef = useRef<DisplayMetrics | null>(null)
   
   // State
   const [isLoading, setIsLoading] = useState<boolean>(false)
@@ -97,15 +116,16 @@ export function useEditorState() {
           if (fpsCounterRef.current) {
             fpsCounterRef.current.textContent = `FPS  ${stats.fps.toFixed(2)}`
           }
-          if (infoRef.current) {
-            const bpm = loadedLevel.settings?.bpm || 0
-            infoRef.current.innerHTML = `
-              <div class="space-y-1">
-                <div>Time: ${(stats.time / 1000).toFixed(2)}s</div>
-                <div>Tile: ${stats.tileIndex} / ${loadedLevel.tiles?.length || 0}</div>
-                <div>BPM: ${bpm}</div>
-              </div>
-            `
+          const metrics = updateMetrics({
+            tileIndex: stats.tileIndex,
+            elapsedTime: stats.time,
+            totalTiles: stats.totalTiles,
+            tileBPM: stats.tileBPM,
+            tileStartTimes: stats.tileStartTimes,
+          })
+          if (metrics && infoRef.current) {
+            metricsRef.current = metrics
+            infoRef.current.innerHTML = renderMetricsHTML(metrics)
           }
         })
       }
@@ -326,15 +346,16 @@ export function useEditorState() {
                 if (fpsCounterRef.current) {
                   fpsCounterRef.current.textContent = `FPS  ${stats.fps.toFixed(2)}`
                 }
-                if (infoRef.current) {
-                  const bpm = loadedLevel.settings?.bpm || 0
-                  infoRef.current.innerHTML = `
-                    <div class="space-y-1">
-                      <div>Time: ${(stats.time / 1000).toFixed(2)}s</div>
-                      <div>Tile: ${stats.tileIndex} / ${loadedLevel.tiles?.length || 0}</div>
-                      <div>BPM: ${bpm}</div>
-                    </div>
-                  `
+                const metrics = updateMetrics({
+                  tileIndex: stats.tileIndex,
+                  elapsedTime: stats.time,
+                  totalTiles: stats.totalTiles,
+                  tileBPM: stats.tileBPM,
+                  tileStartTimes: stats.tileStartTimes,
+                })
+                if (metrics && infoRef.current) {
+                  metricsRef.current = metrics
+                  infoRef.current.innerHTML = renderMetricsHTML(metrics)
                 }
               })
             }

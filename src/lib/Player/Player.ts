@@ -79,7 +79,7 @@ export class Player implements IPlayer {
   private boundHandlers: { [key: string]: EventListenerOrEventListenerObject } = {};
 
   // Stats callback
-  private onStatsUpdate: ((stats: { fps: number; time: number; tileIndex: number }) => void) | null = null;
+  private onStatsUpdate: ((stats: { fps: number; time: number; tileIndex: number; tileBPM: number[]; tileStartTimes: number[]; totalTiles: number }) => void) | null = null;
   private frameCount: number = 0;
   private lastTime: number = 0;
 
@@ -973,7 +973,7 @@ export class Player implements IPlayer {
     this.initialPinchDistance = 0;
   }
 
-  public setStatsCallback(callback: (stats: { fps: number; time: number; tileIndex: number }) => void): void {
+  public setStatsCallback(callback: (stats: { fps: number; time: number; tileIndex: number; tileBPM: number[]; tileStartTimes: number[]; totalTiles: number }) => void): void {
     this.onStatsUpdate = callback;
   }
 
@@ -1052,7 +1052,10 @@ export class Player implements IPlayer {
           this.onStatsUpdate({
             fps,
             time: this.elapsedTime,
-            tileIndex: this.currentTileIndex
+            tileIndex: this.currentTileIndex,
+            tileBPM: this.tileBPM,
+            tileStartTimes: this.tileStartTimes,
+            totalTiles: this.levelData.tiles.length
           });
         }
       }
