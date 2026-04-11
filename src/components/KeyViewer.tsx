@@ -22,7 +22,7 @@ export interface KeyViewerProps {
   enabled: boolean
 }
 
-// 默认按键配置
+// 默认按键配置（与 JipperResourcePack 完全一致）
 const DEFAULT_KEY_CODES: Record<string, string[]> = {
   key10: ["Tab", "Digit1", "Digit2", "KeyE", "KeyP", "Equal", "Backspace", "Backslash", "Space", "Comma"],
   key12: ["Tab", "Digit1", "Digit2", "KeyE", "KeyP", "Equal", "Backspace", "Backslash", "Space", "KeyC", "Comma", "Period"],
@@ -93,7 +93,15 @@ const DEFAULT_FOOT_KEY_CODES: Record<string, string[]> = {
   ],
 }
 
-// 按键代码转显示文本
+// 后退序列（与 JipperResourcePack 完全一致）
+const BACK_SEQUENCES: Record<string, number[]> = {
+  key10: [8, 9],
+  key12: [9, 8, 10, 11],
+  key16: [12, 13, 9, 8, 10, 11, 14, 15],
+  key20: [12, 13, 9, 8, 10, 11, 14, 15, 17, 16, 18, 19],
+}
+
+// 按键代码转显示文本（与 JipperResourcePack 完全一致）
 function keyCodeToLabel(code: string): string {
   if (code.startsWith("Digit")) return code.slice(5)
   if (code.startsWith("Key")) return code.slice(3)
@@ -127,7 +135,7 @@ function keyCodeToLabel(code: string): string {
   return code
 }
 
-// 获取按键布局配置
+// 获取按键布局配置（与 JipperResourcePack 完全一致）
 function getKeyLayout(style: string, footStyle: string, downLocation: boolean) {
   const remove = downLocation ? 200 : 0
   const keys: Array<{ index: number; x: number; y: number; width: number; row: number; rainParent?: number }> = []
@@ -136,26 +144,26 @@ function getKeyLayout(style: string, footStyle: string, downLocation: boolean) {
     for (let i = 0; i < 8; i++) keys.push({ index: i, x: 54 * i, y: 279 - remove, width: 50, row: 0 })
     keys.push({ index: 8, x: 81 + 54, y: 225 - remove, width: 77, row: 1 })
     keys.push({ index: 9, x: 81, y: 225 - remove, width: 50, row: 1 })
-    keys.push({ index: 10, x: 54 * 4, y: 225 - remove, width: 77, row: 1 })
-    keys.push({ index: 11, x: 54 * 4 + 81, y: 225 - remove, width: 50, row: 1 })
+    // key10 只有 10 个键，索引 8 和 9 是后退键
   } else if (style === "key12") {
     for (let i = 0; i < 8; i++) keys.push({ index: i, x: 54 * i, y: 279 - remove, width: 50, row: 0 })
-    const backSeq = [9, 8, 10, 11]
-    for (let i = 0; i < 4; i++) {
+    const backSeq = BACK_SEQUENCES.key12
+    for (let i = 0; i < backSeq.length; i++) {
       keys.push({ index: backSeq[i], x: 54 * i, y: 225 - remove, width: 50, row: 1, rainParent: i + 2 })
     }
   } else if (style === "key16") {
     for (let i = 0; i < 8; i++) keys.push({ index: i, x: 54 * i, y: 320 - remove, width: 50, row: 0 })
-    const backSeq = [12, 13, 9, 8, 10, 11, 14, 15]
-    for (let i = 0; i < 8; i++) {
+    const backSeq = BACK_SEQUENCES.key16
+    for (let i = 0; i < backSeq.length; i++) {
       keys.push({ index: backSeq[i], x: 54 * i, y: 266 - remove, width: 50, row: 1, rainParent: i })
     }
   } else if (style === "key20") {
     for (let i = 0; i < 8; i++) keys.push({ index: i, x: 54 * i, y: 333 - remove, width: 50, row: 0 })
-    const backSeq = [12, 13, 9, 8, 10, 11, 14, 15]
-    for (let i = 0; i < 8; i++) {
+    const backSeq = BACK_SEQUENCES.key20.slice(0, 8)
+    for (let i = 0; i < backSeq.length; i++) {
       keys.push({ index: backSeq[i], x: 54 * i, y: 279 - remove, width: 50, row: 1, rainParent: i })
     }
+    // key20 的额外 4 个键
     keys.push({ index: 16, x: 81 + 54, y: 225 - remove, width: 77, row: 3 })
     keys.push({ index: 17, x: 81, y: 225 - remove, width: 50, row: 3 })
     keys.push({ index: 18, x: 54 * 4, y: 225 - remove, width: 77, row: 3 })
