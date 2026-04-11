@@ -87,6 +87,54 @@ export default function SettingsPage() {
           description: t("settings.loadMethod.description"),
           type: "loadMethod",
         },
+        {
+          id: "keyViewerEnabled",
+          title: t("settings.keyViewerEnabled.title"),
+          description: t("settings.keyViewerEnabled.description"),
+          type: "keyViewerEnabled",
+        },
+        {
+          id: "keyViewerStyle",
+          title: t("settings.keyViewerStyle.title"),
+          description: t("settings.keyViewerStyle.description"),
+          type: "keyViewerStyle",
+        },
+        {
+          id: "footKeyViewerStyle",
+          title: t("settings.footKeyViewerStyle.title"),
+          description: t("settings.footKeyViewerStyle.description"),
+          type: "footKeyViewerStyle",
+        },
+        {
+          id: "keyViewerSize",
+          title: t("settings.keyViewerSize.title"),
+          description: t("settings.keyViewerSize.description"),
+          type: "keyViewerSize",
+        },
+        {
+          id: "keyViewerDownLocation",
+          title: t("settings.keyViewerDownLocation.title"),
+          description: t("settings.keyViewerDownLocation.description"),
+          type: "keyViewerDownLocation",
+        },
+        {
+          id: "keyViewerUseRain",
+          title: t("settings.keyViewerUseRain.title"),
+          description: t("settings.keyViewerUseRain.description"),
+          type: "keyViewerUseRain",
+        },
+        {
+          id: "keyViewerRainSpeed",
+          title: t("settings.keyViewerRainSpeed.title"),
+          description: t("settings.keyViewerRainSpeed.description"),
+          type: "keyViewerRainSpeed",
+        },
+        {
+          id: "keyViewerRainHeight",
+          title: t("settings.keyViewerRainHeight.title"),
+          description: t("settings.keyViewerRainHeight.description"),
+          type: "keyViewerRainHeight",
+        },
       ],
     },
   ]
@@ -357,6 +405,161 @@ export default function SettingsPage() {
                         </SelectItem>
                       </SelectContent>
                     </Select>
+                  )}
+
+                  {setting.type === "keyViewerEnabled" && (
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => updateSettings({ keyViewerEnabled: !settings.keyViewerEnabled })}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                          settings.keyViewerEnabled ? "bg-purple-500" : "bg-slate-300 dark:bg-slate-600"
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                            settings.keyViewerEnabled ? "translate-x-6" : "translate-x-1"
+                          }`}
+                        />
+                      </button>
+                      <span className="text-sm text-slate-600 dark:text-slate-400">
+                        {settings.keyViewerEnabled ? t("settings.keyViewerEnabled.enabled") : t("settings.keyViewerEnabled.disabled")}
+                      </span>
+                    </div>
+                  )}
+
+                  {setting.type === "keyViewerStyle" && (
+                    <Select value={settings.keyViewerStyle} onValueChange={(value: any) => updateSettings({ keyViewerStyle: value })}>
+                      <SelectTrigger className="bg-white dark:bg-slate-700 border-slate-200 dark:border-slate-600 text-slate-900 dark:text-white w-full sm:w-48 hover:bg-slate-50 dark:hover:bg-slate-600 focus:border-purple-500 dark:focus:border-purple-400 focus:ring-purple-500/20 dark:focus:ring-purple-400/20">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 shadow-lg dark:shadow-slate-900/50">
+                        <SelectItem value="key10" className="text-slate-900 dark:text-white hover:bg-slate-100 dark:hover:bg-slate-700 focus:bg-slate-100 dark:focus:bg-slate-700 cursor-pointer">
+                          10 Key
+                        </SelectItem>
+                        <SelectItem value="key12" className="text-slate-900 dark:text-white hover:bg-slate-100 dark:hover:bg-slate-700 focus:bg-slate-100 dark:focus:bg-slate-700 cursor-pointer">
+                          12 Key
+                        </SelectItem>
+                        <SelectItem value="key16" className="text-slate-900 dark:text-white hover:bg-slate-100 dark:hover:bg-slate-700 focus:bg-slate-100 dark:focus:bg-slate-700 cursor-pointer">
+                          16 Key (Default)
+                        </SelectItem>
+                        <SelectItem value="key20" className="text-slate-900 dark:text-white hover:bg-slate-100 dark:hover:bg-slate-700 focus:bg-slate-100 dark:focus:bg-slate-700 cursor-pointer">
+                          20 Key
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
+
+                  {setting.type === "footKeyViewerStyle" && (
+                    <Select value={settings.footKeyViewerStyle} onValueChange={(value: any) => updateSettings({ footKeyViewerStyle: value })}>
+                      <SelectTrigger className="bg-white dark:bg-slate-700 border-slate-200 dark:border-slate-600 text-slate-900 dark:text-white w-full sm:w-48 hover:bg-slate-50 dark:hover:bg-slate-600 focus:border-purple-500 dark:focus:border-purple-400 focus:ring-purple-500/20 dark:focus:ring-purple-400/20">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 shadow-lg dark:shadow-slate-900/50">
+                        <SelectItem value="none" className="text-slate-900 dark:text-white hover:bg-slate-100 dark:hover:bg-slate-700 focus:bg-slate-100 dark:focus:bg-slate-700 cursor-pointer">
+                          None
+                        </SelectItem>
+                        <SelectItem value="key2" className="text-slate-900 dark:text-white hover:bg-slate-100 dark:hover:bg-slate-700 focus:bg-slate-100 dark:focus:bg-slate-700 cursor-pointer">
+                          2 Key
+                        </SelectItem>
+                        <SelectItem value="key4" className="text-slate-900 dark:text-white hover:bg-slate-100 dark:hover:bg-slate-700 focus:bg-slate-100 dark:focus:bg-slate-700 cursor-pointer">
+                          4 Key (Default)
+                        </SelectItem>
+                        <SelectItem value="key6" className="text-slate-900 dark:text-white hover:bg-slate-100 dark:hover:bg-slate-700 focus:bg-slate-100 dark:focus:bg-slate-700 cursor-pointer">
+                          6 Key
+                        </SelectItem>
+                        <SelectItem value="key8" className="text-slate-900 dark:text-white hover:bg-slate-100 dark:hover:bg-slate-700 focus:bg-slate-100 dark:focus:bg-slate-700 cursor-pointer">
+                          8 Key
+                        </SelectItem>
+                        <SelectItem value="key16" className="text-slate-900 dark:text-white hover:bg-slate-100 dark:hover:bg-slate-700 focus:bg-slate-100 dark:focus:bg-slate-700 cursor-pointer">
+                          16 Key
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
+
+                  {setting.type === "keyViewerSize" && (
+                    <div className="space-y-2">
+                      <input
+                        type="range"
+                        min="0.5"
+                        max="2"
+                        step="0.1"
+                        value={settings.keyViewerSize}
+                        onChange={(e) => updateSettings({ keyViewerSize: parseFloat(e.target.value) })}
+                        className="w-full sm:w-48 accent-purple-500"
+                      />
+                      <span className="text-sm text-slate-600 dark:text-slate-400">{(settings.keyViewerSize * 100).toFixed(0)}%</span>
+                    </div>
+                  )}
+
+                  {setting.type === "keyViewerDownLocation" && (
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => updateSettings({ keyViewerDownLocation: !settings.keyViewerDownLocation })}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                          settings.keyViewerDownLocation ? "bg-purple-500" : "bg-slate-300 dark:bg-slate-600"
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                            settings.keyViewerDownLocation ? "translate-x-6" : "translate-x-1"
+                          }`}
+                        />
+                      </button>
+                      <span className="text-sm text-slate-600 dark:text-slate-400">
+                        {settings.keyViewerDownLocation ? t("settings.keyViewerDownLocation.bottom") : t("settings.keyViewerDownLocation.top")}
+                      </span>
+                    </div>
+                  )}
+
+                  {setting.type === "keyViewerUseRain" && (
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => updateSettings({ keyViewerUseRain: !settings.keyViewerUseRain })}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                          settings.keyViewerUseRain ? "bg-purple-500" : "bg-slate-300 dark:bg-slate-600"
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                            settings.keyViewerUseRain ? "translate-x-6" : "translate-x-1"
+                          }`}
+                        />
+                      </button>
+                      <span className="text-sm text-slate-600 dark:text-slate-400">
+                        {settings.keyViewerUseRain ? t("settings.keyViewerUseRain.enabled") : t("settings.keyViewerUseRain.disabled")}
+                      </span>
+                    </div>
+                  )}
+
+                  {setting.type === "keyViewerRainSpeed" && (
+                    <div className="space-y-2">
+                      <input
+                        type="range"
+                        min="1"
+                        max="800"
+                        step="1"
+                        value={settings.keyViewerRainSpeed}
+                        onChange={(e) => updateSettings({ keyViewerRainSpeed: parseFloat(e.target.value) })}
+                        className="w-full sm:w-48 accent-purple-500"
+                      />
+                      <span className="text-sm text-slate-600 dark:text-slate-400">{settings.keyViewerRainSpeed.toFixed(0)}</span>
+                    </div>
+                  )}
+
+                  {setting.type === "keyViewerRainHeight" && (
+                    <div className="space-y-2">
+                      <input
+                        type="range"
+                        min="1"
+                        max="1000"
+                        step="1"
+                        value={settings.keyViewerRainHeight}
+                        onChange={(e) => updateSettings({ keyViewerRainHeight: parseFloat(e.target.value) })}
+                        className="w-full sm:w-48 accent-purple-500"
+                      />
+                      <span className="text-sm text-slate-600 dark:text-slate-400">{settings.keyViewerRainHeight.toFixed(0)}px</span>
+                    </div>
                   )}
                 </div>
               ))}

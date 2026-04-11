@@ -172,6 +172,44 @@ export const translations = {
         async: "异步（推荐）",
         worker: "Worker（后台线程）",
       },
+      keyViewerEnabled: {
+        title: "KeyViewer 开关",
+        description: "启用或禁用按键显示功能。",
+        enabled: "已启用",
+        disabled: "已禁用",
+      },
+      keyViewerStyle: {
+        title: "手键布局样式",
+        description: "选择手键 KeyViewer 的按键数量布局。",
+      },
+      footKeyViewerStyle: {
+        title: "脚键布局样式",
+        description: "选择脚键 KeyViewer 的按键数量布局。",
+      },
+      keyViewerSize: {
+        title: "KeyViewer 大小",
+        description: "调整 KeyViewer 的整体缩放比例。",
+      },
+      keyViewerDownLocation: {
+        title: "KeyViewer 位置",
+        description: "选择 KeyViewer 显示在屏幕上方或下方。",
+        top: "上方",
+        bottom: "下方",
+      },
+      keyViewerUseRain: {
+        title: "雨滴效果",
+        description: "启用按键时的雨滴视觉效果。",
+        enabled: "已启用",
+        disabled: "已禁用",
+      },
+      keyViewerRainSpeed: {
+        title: "雨滴速度",
+        description: "调整雨滴下落的速度。",
+      },
+      keyViewerRainHeight: {
+        title: "雨滴高度",
+        description: "调整雨滴的最大高度。",
+      },
       themePreview: {
         title: "主题预览",
       },
@@ -350,6 +388,44 @@ export const translations = {
         async: "Async (Recommended)",
         worker: "Worker (Background Thread)",
       },
+      keyViewerEnabled: {
+        title: "KeyViewer",
+        description: "Enable or disable the key display feature.",
+        enabled: "Enabled",
+        disabled: "Disabled",
+      },
+      keyViewerStyle: {
+        title: "Hand Key Layout",
+        description: "Select the number of keys for hand KeyViewer.",
+      },
+      footKeyViewerStyle: {
+        title: "Foot Key Layout",
+        description: "Select the number of keys for foot KeyViewer.",
+      },
+      keyViewerSize: {
+        title: "KeyViewer Size",
+        description: "Adjust the overall scale of KeyViewer.",
+      },
+      keyViewerDownLocation: {
+        title: "KeyViewer Position",
+        description: "Choose whether to display KeyViewer at the top or bottom of the screen.",
+        top: "Top",
+        bottom: "Bottom",
+      },
+      keyViewerUseRain: {
+        title: "Rain Effect",
+        description: "Enable rain visual effect when pressing keys.",
+        enabled: "Enabled",
+        disabled: "Disabled",
+      },
+      keyViewerRainSpeed: {
+        title: "Rain Speed",
+        description: "Adjust the speed of rain falling.",
+      },
+      keyViewerRainHeight: {
+        title: "Rain Height",
+        description: "Adjust the maximum height of rain.",
+      },
       themePreview: {
         title: "Theme Preview",
       },
@@ -527,6 +603,44 @@ export const translations = {
         sync: "同期（UIをブロック）",
         async: "非同期（推奨）",
         worker: "ワーカー（バックグラウンドスレッド）",
+      },
+      keyViewerEnabled: {
+        title: "KeyViewer",
+        description: "キー表示機能を有効または無効にします。",
+        enabled: "有効",
+        disabled: "無効",
+      },
+      keyViewerStyle: {
+        title: "手键レイアウト",
+        description: "手键 KeyViewer のキー数を選択します。",
+      },
+      footKeyViewerStyle: {
+        title: "足键レイアウト",
+        description: "足键 KeyViewer のキー数を選択します。",
+      },
+      keyViewerSize: {
+        title: "KeyViewer サイズ",
+        description: "KeyViewer 全体のスケールを調整します。",
+      },
+      keyViewerDownLocation: {
+        title: "KeyViewer 位置",
+        description: "KeyViewer を画面の上部または下部に表示するか選択します。",
+        top: "上部",
+        bottom: "下部",
+      },
+      keyViewerUseRain: {
+        title: "レインエフェクト",
+        description: "キーを押したときのレイン視覚効果を有効にします。",
+        enabled: "有効",
+        disabled: "無効",
+      },
+      keyViewerRainSpeed: {
+        title: "レイン速度",
+        description: "レインの落下速度を調整します。",
+      },
+      keyViewerRainHeight: {
+        title: "レイン高さ",
+        description: "レインの最大高さを調整します。",
       },
       themePreview: {
         title: "テーマプレビュー",

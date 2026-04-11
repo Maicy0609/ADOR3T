@@ -7,9 +7,12 @@ import { LoadingModal } from "@/components/LoadingModal"
 import { NotificationSystem } from "./NotificationSystem"
 import { useEditorState } from "./useEditorState"
 import { useFullscreen } from "./useFullscreen"
+import { KeyViewer } from "@/components/KeyViewer"
+import { useAppSettings } from "@/hooks/use-app-settings"
 
 // 主编辑器页面
 export default function EditorPage() {
+  const { settings } = useAppSettings()
   const {
     // Refs
     containerRef,
@@ -35,7 +38,6 @@ export default function EditorPage() {
     showVideoImportDialog,
     isDark,
     i18nMounted,
-    settings,
     
     // Setters
     setSettingsOpen,
@@ -367,6 +369,9 @@ export default function EditorPage() {
           )}
         </button>
       </div>
+
+      {/* KeyViewer Component */}
+      <KeyViewer enabled={settings.keyViewerEnabled} />
     </div>
   )
 }
