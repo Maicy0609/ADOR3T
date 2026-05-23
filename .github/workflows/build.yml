@@ -1,10 +1,13 @@
-name: Build APK
+name: Build and Release APK
 
 on:
   push:
     tags:
       - 'v*'
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -49,9 +52,23 @@ jobs:
           echo "sdk.dir=$ANDROID_HOME" > local.properties
           ./gradlew assembleDebug
 
-      - name: Upload APK
+      - name: Upload APK as artifact
         uses: actions/upload-artifact@v4
         with:
           name: apk-debug
           path: platform/android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
+      # ========== Release ==========
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ADOJAS ${{ github.ref_name }}
+          body: |
+            ADOJAS Android APK ${{ github.ref_name }} 自动构建
+
+            从 Releases 页面下载 `app-debug.apk` 安装包。
+          files: platform/android/app/build/outputs/apk/debug/*.apk
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
