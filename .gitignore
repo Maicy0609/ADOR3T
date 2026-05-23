@@ -29,10 +29,12 @@ pnpm-lock.yaml
 yarn.lock
 bun.lock
 
-# Android build
+# Android build artifacts
 platform/android/.gradle/
 platform/android/local.properties
 platform/android/app/build/
 platform/android/build/
+platform/android/app/src/main/assets/web/*
+!platform/android/app/src/main/assets/web/.gitkeep
 *.apk
 *.aab
