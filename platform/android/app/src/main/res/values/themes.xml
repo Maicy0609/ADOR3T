@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.ADOJAS" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="colorPrimary">@color/md3_dark_primary</item>
+        <item name="colorOnPrimary">@color/md3_dark_onPrimary</item>
+        <item name="colorPrimaryContainer">@color/md3_dark_primaryContainer</item>
+        <item name="colorSecondary">@color/md3_dark_secondary</item>
+        <item name="colorOnSecondary">@color/md3_dark_onSecondary</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowNoTitle">true</item>
+    </style>
+</resources>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="md3_dark_surface">#FF1C1B1F</color>
+    <color name="md3_dark_onSurface">#FFE6E1E5</color>
+    <color name="md3_dark_primary">#FFD0BCFF</color>
+    <color name="md3_dark_onPrimary">#FF381E72</color>
+    <color name="md3_dark_primaryContainer">#FF4F378B</color>
+    <color name="md3_dark_secondary">#FFCCC2DC</color>
+    <color name="md3_dark_onSecondary">#FF332D41</color>
+    <color name="md3_dark_background">#FF1C1B1F</color>
+</resources>
