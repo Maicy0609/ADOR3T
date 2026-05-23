@@ -59,7 +59,7 @@
             android:layout_marginTop="48dp"
             android:text="@string/enter_game"
             android:textSize="16sp"
-            style="@style/Widget.Material3.Button.Tonal" />
+            style="@style/Widget.Material3.Button" />
 
     </LinearLayout>
 
