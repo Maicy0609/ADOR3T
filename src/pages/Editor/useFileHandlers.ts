@@ -5,6 +5,7 @@ import type { ILevelData } from "@/lib/Player/types"
 import { Player } from "@/lib/Player/Player"
 import { LargeFileParser } from "@/lib/LargeFileParser"
 import JSZip from "jszip"
+import { isAdojas, autoLoadAssets as adojasAutoLoadAssets, getLastFileDir } from "@/lib/fs"
 // @ts-ignore
 import LevelLoaderWorker from '../../lib/Player/levelLoaderWorker?worker&inline'
 import wasmLoaderBase64 from 'virtual:wasm-level-loader'
@@ -191,6 +192,7 @@ export function useFileHandlers({
 
       // Initialize player and synthesize hitsounds
       await initializePlayerWithHitsounds(loadedLevel)
+      await adojasAutoLoad(loadedLevel)
 
       setLoadingProgress(100)
       window.showNotification?.("success", t("editor.notifications.loadSuccess"))
@@ -200,6 +202,32 @@ export function useFileHandlers({
     })
 
     level.load()
+  }
+
+  /**
+   * ADOJAS 原生模式：关卡加载完成后，自动从文件系统读取引用的音频/视频/装饰。
+   */
+  const adojasAutoLoad = async (loadedLevel: any): Promise<void> => {
+    if (!isAdojas()) return
+    const levelDir = getLastFileDir()
+    if (!levelDir || !previewerRef.current) return
+
+    console.log('[ADOJAS] Auto-loading assets from:', levelDir)
+
+    await adojasAutoLoadAssets(loadedLevel, levelDir, {
+      loadMusic: (url) => {
+        try { previewerRef.current?.loadMusic(url) } catch {}
+      },
+      loadVideo: (url) => {
+        try { previewerRef.current?.loadVideo(url) } catch {}
+      },
+      registerDecorationImage: (name, url) => {
+        try { previewerRef.current?.registerDecorationImage?.(name, url) } catch {}
+      },
+      registerCustomBGImage: (name, url) => {
+        try { previewerRef.current?.registerCustomBGImage?.(name, url) } catch {}
+      },
+    })
   }
 
   // Asynchronous loading (non-blocking)
@@ -225,6 +253,7 @@ export function useFileHandlers({
 
       // Initialize player and synthesize hitsounds
       await initializePlayerWithHitsounds(loadedLevel)
+      await adojasAutoLoad(loadedLevel)
 
       setLoadingProgress(100)
       window.showNotification?.("success", t("editor.notifications.loadSuccess"))
@@ -288,6 +317,7 @@ export function useFileHandlers({
 
           // Create player and synthesize hitsounds
           await initializePlayerWithHitsounds(parsedLevel)
+          await adojasAutoLoad(parsedLevel)
 
           setLoadingProgress(100)
           window.showNotification?.("success", t("editor.notifications.loadSuccess"))
