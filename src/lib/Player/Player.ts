@@ -90,8 +90,11 @@ export class Player implements IPlayer {
   // Precalculated rotations and timing
   private cumulativeRotations: number[] = [];
   private totalLevelRotation: number = 0;
-  
+
   private tileStartTimes: number[] = [];
+
+  // Cached resolved absolute directions (angleData with 999s resolved via backtracking)
+  private resolvedTileDirections: number[] | null = null;
   private tileDurations: number[] = [];
   private tileExtraRotations: number[] = [];
   private tileIsCW: boolean[] = [];
@@ -344,6 +347,24 @@ export class Player implements IPlayer {
     return this.tileColorManager.formatHexColor(hex);
   }
   
+  /**
+   * Resolve a tile's absolute direction using the same convention as
+   * calculateBasicTilePositions() — simple +180 for each 999.
+   * Cache is built lazily on first call.
+   */
+  private getResolvedTileDirection(index: number): number {
+    if (!this.resolvedTileDirections) {
+      const angleData = this.levelData.angleData || [];
+      const count = angleData.length;
+      const resolved = new Array(count);
+      for (let i = 0; i < count; i++) {
+        resolved[i] = angleData[i] === 999 ? (resolved[i - 1] || 0) + 180 : angleData[i];
+      }
+      this.resolvedTileDirections = resolved;
+    }
+    return this.resolvedTileDirections[index] ?? 0;
+  }
+
   /**
    * Helper for InstancedMeshManager to generate geometry
    */
@@ -2477,16 +2498,16 @@ export class Player implements IPlayer {
     const [x, y] = tile.position;
     const zLevel = 12 - index;
     
-    let pred = -180;
-    if (index > 0) {
-       const prevTile = this.levelData.tiles[index - 1];
-       pred = (prevTile.direction || 0) - 180;
-       if (prevTile.direction === 999 && index > 1) {
-         pred = (this.levelData.tiles[index - 2].direction || 0);
-       }
-    }
-    
-    const currentDirection = tile.direction || 0;
+    // Resolve absolute directions for mesh geometry.
+    // tile.direction contains raw angleData values (0, 999, etc.)
+    // We need to resolve 999 by backtracking to the last non-999 value,
+    // matching the ADOFAI library's calculateTilePosition() convention.
+    const resolved = this.getResolvedTileDirection(index);
+    const prevResolved = index > 0 ? this.getResolvedTileDirection(index - 1) : 0;
+
+    // pred = incoming segment direction (prev tile's resolved direction - 180)
+    const pred = index > 0 ? (prevResolved || 0) - 180 : -180;
+    const currentDirection = resolved || 0;
     const is999 = (tile.angle === 0);
     
     // Get track style from tile color config
@@ -3105,7 +3126,7 @@ export class Player implements IPlayer {
     // Pre-calculate all angles
     const floats = new Array(tiles.length);
     for (let i = 0; i < tiles.length; i++) {
-      floats[i] = angleData[i] === 999 ? (angleData[i - 1] || 0) + 180 : angleData[i];
+      floats[i] = angleData[i] === 999 ? (floats[i - 1] || 0) + 180 : angleData[i];
     }
     
     // Calculate positions
