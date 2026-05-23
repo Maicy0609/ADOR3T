@@ -1,5 +1,8 @@
 import * as THREE from 'three';
 
+import instancedVert from '../shaders/instanced.vert'
+import instancedFrag from '../shaders/instanced.frag'
+
 /**
  * Instance data for a single tile
  */
@@ -64,37 +67,8 @@ export class InstancedMeshManager {
         // Create a basic shader material that supports instance colors
         const material = new THREE.ShaderMaterial({
             uniforms: {},
-            vertexShader: `
-                attribute vec3 iColor;
-                attribute vec3 iBgColor;
-                attribute float iOpacity;
-                
-                varying vec3 vColor;
-                varying vec3 vInstanceColor;
-                varying vec3 vInstanceBgColor;
-                varying float vOpacity;
-                
-                void main() {
-                    vColor = color;
-                    vInstanceColor = iColor;
-                    vInstanceBgColor = iBgColor;
-                    vOpacity = iOpacity;
-                    
-                    gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0);
-                }
-            `,
-            fragmentShader: `
-                varying vec3 vColor;
-                varying vec3 vInstanceColor;
-                varying vec3 vInstanceBgColor;
-                varying float vOpacity;
-                
-                void main() {
-                    // Mix instance colors based on vertex color red channel
-                    vec3 finalColor = mix(vInstanceBgColor, vInstanceColor, vColor.r);
-                    gl_FragColor = vec4(finalColor, vOpacity);
-                }
-            `,
+            vertexShader: instancedVert,
+            fragmentShader: instancedFrag,
             vertexColors: true,
             side: THREE.DoubleSide,
             transparent: true,

@@ -2,6 +2,7 @@ import { defineConfig } from "vite"
 import react from "@vitejs/plugin-react"
 import path from "path"
 import legacy from '@vitejs/plugin-legacy'
+import glsl from 'vite-plugin-glsl'
 import htmlPostBuildPlugin from './no-attr'
 import { wasmInlinePlugin } from './vite-plugin-wasm-inline'
 
@@ -12,6 +13,7 @@ export default defineConfig(({ mode, command }) => {
   const isBuild = command == 'build'
   const plugins = [
     wasmInlinePlugin(),
+    glsl(),
     react(),
   ]
   if (isBuild) {

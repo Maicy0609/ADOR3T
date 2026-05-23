@@ -10,134 +10,12 @@
 
 import * as THREE from 'three';
 
-// Shader for brightness extraction (threshold pass)
-// Only extracts bright areas, no color modification
-const BrightnessShader = {
-    uniforms: {
-        tDiffuse: { value: null },
-        threshold: { value: 0.5 },
-    },
-    vertexShader: /* glsl */ `
-        varying vec2 vUv;
-        void main() {
-            vUv = uv;
-            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }
-    `,
-    fragmentShader: /* glsl */ `
-        uniform sampler2D tDiffuse;
-        uniform float threshold;
-        varying vec2 vUv;
-        
-        void main() {
-            vec4 color = texture2D(tDiffuse, vUv);
-            // Use max of components for thresholding saturated colors better (like pure Red/Blue)
-            float brightness = max(max(color.r, color.g), color.b);
-            
-            if (brightness < threshold) {
-                gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
-            } else {
-                gl_FragColor = color;
-            }
-        }
-    `
-};
-
-// Shader for Gaussian blur (quality: 0=low/5-tap, 1=high/9-tap)
-const BlurShader = {
-    uniforms: {
-        tDiffuse: { value: null },
-        direction: { value: new THREE.Vector2(1, 0) },
-        resolution: { value: new THREE.Vector2(1, 1) },
-        quality: { value: 1 },
-    },
-    vertexShader: /* glsl */ `
-        varying vec2 vUv;
-        void main() {
-            vUv = uv;
-            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }
-    `,
-    fragmentShader: /* glsl */ `
-        uniform sampler2D tDiffuse;
-        uniform vec2 direction;
-        uniform vec2 resolution;
-        uniform int quality;
-        varying vec2 vUv;
-
-        void main() {
-            vec4 color = vec4(0.0);
-            vec2 texelSize = direction / resolution;
-
-            // Gaussian blur weights
-            float weights[5];
-            weights[0] = 0.227027;
-            weights[1] = 0.1945946;
-            weights[2] = 0.1216216;
-            weights[3] = 0.054054;
-            weights[4] = 0.016216;
-            
-            if (quality == 0) {
-                // 5-tap (low quality): center + 2 taps
-                color += texture2D(tDiffuse, vUv) * weights[0];
-                for (int i = 1; i < 3; i++) {
-                    vec2 offset = texelSize * float(i);
-                    color += texture2D(tDiffuse, vUv + offset) * weights[i];
-                    color += texture2D(tDiffuse, vUv - offset) * weights[i];
-                }
-            } else {
-                // 9-tap (high quality): center + 4 taps
-                color += texture2D(tDiffuse, vUv) * weights[0];
-                for (int i = 1; i < 5; i++) {
-                    vec2 offset = texelSize * float(i);
-                    color += texture2D(tDiffuse, vUv + offset) * weights[i];
-                    color += texture2D(tDiffuse, vUv - offset) * weights[i];
-                }
-            }
-
-            gl_FragColor = color;
-        }
-    `
-};
-
-// Shader for combining bloom with original scene
-// Color tint is applied here (like Unity's _Param1)
-const CombineShader = {
-    uniforms: {
-        tDiffuse: { value: null },
-        tBloom: { value: null },
-        intensity: { value: 1.0 },
-        bloomColor: { value: new THREE.Color(1, 1, 1) },
-    },
-    vertexShader: /* glsl */ `
-        varying vec2 vUv;
-        void main() {
-            vUv = uv;
-            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }
-    `,
-    fragmentShader: /* glsl */ `
-        uniform sampler2D tDiffuse;
-        uniform sampler2D tBloom;
-        uniform float intensity;
-        uniform vec3 bloomColor;
-        varying vec2 vUv;
-        
-        void main() {
-            vec4 original = texture2D(tDiffuse, vUv);
-            vec4 bloom = texture2D(tBloom, vUv);
-            
-            // Apply bloom color tint (like Unity's _Param1)
-            vec3 tintedBloom = bloom.rgb * bloomColor;
-            
-            // Additive blending with intensity
-            vec3 result = original.rgb + tintedBloom * intensity;
-            
-            gl_FragColor = vec4(result, 1.0);
-            #include <colorspace_fragment>
-        }
-    `
-};
+import brightVert from '../shaders/pass.vert'
+import brightFrag from '../shaders/brightness.frag'
+import blurVert from '../shaders/pass.vert'
+import blurFrag from '../shaders/blur.frag'
+import combineVert from '../shaders/pass.vert'
+import combineFrag from '../shaders/combine.frag'
 
 /**
  * Bloom Effect class
@@ -191,21 +69,34 @@ export class BloomEffect {
         });
 
         this.brightnessMaterial = new THREE.ShaderMaterial({
-            uniforms: THREE.UniformsUtils.clone(BrightnessShader.uniforms),
-            vertexShader: BrightnessShader.vertexShader,
-            fragmentShader: BrightnessShader.fragmentShader,
+            uniforms: {
+                tDiffuse: { value: null },
+                threshold: { value: 0.5 },
+            },
+            vertexShader: brightVert,
+            fragmentShader: brightFrag,
         });
 
         this.blurMaterial = new THREE.ShaderMaterial({
-            uniforms: THREE.UniformsUtils.clone(BlurShader.uniforms),
-            vertexShader: BlurShader.vertexShader,
-            fragmentShader: BlurShader.fragmentShader,
+            uniforms: {
+                tDiffuse: { value: null },
+                direction: { value: new THREE.Vector2(1, 0) },
+                resolution: { value: new THREE.Vector2(1, 1) },
+                quality: { value: 1 },
+            },
+            vertexShader: blurVert,
+            fragmentShader: blurFrag,
         });
 
         this.combineMaterial = new THREE.ShaderMaterial({
-            uniforms: THREE.UniformsUtils.clone(CombineShader.uniforms),
-            vertexShader: CombineShader.vertexShader,
-            fragmentShader: CombineShader.fragmentShader,
+            uniforms: {
+                tDiffuse: { value: null },
+                tBloom: { value: null },
+                intensity: { value: 1.0 },
+                bloomColor: { value: new THREE.Color(1, 1, 1) },
+            },
+            vertexShader: combineVert,
+            fragmentShader: combineFrag,
         });
 
         // Initialize intensity uniform to 0.7 (70% of original strength)
