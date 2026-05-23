@@ -99,10 +99,13 @@ class AudioPlugin(private val context: Context) : AdojasPlugin {
         track.play()
 
         track.setNotificationMarkerPosition(samples.size)
-        track.setOnMarkerRecordListener { _, _ ->
-            track.release()
-            activeTracks.remove(track)
-        }
+        track.setOnPlaybackPositionUpdateListener(object : AudioTrack.OnPlaybackPositionUpdateListener {
+            override fun onMarkerReached(track: AudioTrack) {
+                track.release()
+                activeTracks.remove(track)
+            }
+            override fun onPeriodicNotification(track: AudioTrack) {}
+        })
     }
 
     private fun setVolume(params: JSONObject): Boolean {
