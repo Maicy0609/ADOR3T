@@ -28,3 +28,11 @@ package-lock.json
 pnpm-lock.yaml
 yarn.lock
 bun.lock
+
+# Android build
+platform/android/.gradle/
+platform/android/local.properties
+platform/android/app/build/
+platform/android/build/
+*.apk
+*.aab

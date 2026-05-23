@@ -2,12 +2,15 @@ package com.adojas.android
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.DialogInterface
+import android.os.Build
 import android.os.Bundle
 import android.view.View
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.adojas.android.bridge.AdojasBridge
 import com.adojas.android.bridge.IpcRouter
@@ -16,6 +19,7 @@ import com.adojas.android.plugins.DevicePlugin
 import com.adojas.android.plugins.FilePlugin
 import com.adojas.android.plugins.NetworkPlugin
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 
 class MainActivity : AppCompatActivity() {
 
@@ -101,6 +105,21 @@ class MainActivity : AppCompatActivity() {
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
                 }
+
+                @SuppressLint("NewApi")
+                override fun onRenderProcessGone(
+                    view: WebView?, detail: WebViewRenderProcessGoneDetail?
+                ): Boolean {
+                    val detailObj = detail ?: return false
+                    val crashed = if (Build.VERSION.SDK_INT >= 26) {
+                        detailObj.didCrash()
+                    } else true
+
+                    runOnUiThread {
+                        showCrashDialog(crashed)
+                    }
+                    return true
+                }
             }
 
             webChromeClient = WebChromeClient()
@@ -117,6 +136,44 @@ class MainActivity : AppCompatActivity() {
 
     private fun loadWebApp() {
         webView.loadUrl("file:///android_asset/web/index.html")
+    }
+
+    // ========================================================================
+    // WebView 崩溃处理
+    // ========================================================================
+
+    private var crashDialog: AlertDialog? = null
+
+    private fun showCrashDialog(didCrash: Boolean) {
+        // 防止重复弹出
+        crashDialog?.dismiss()
+
+        val message = if (didCrash) "渲染进程崩溃" else "渲染进程被系统回收"
+
+        crashDialog = MaterialAlertDialogBuilder(this)
+            .setTitle("ADOJAS $message")
+            .setMessage("是否尝试重启？")
+            .setCancelable(false)
+            .setPositiveButton("重启") { _: DialogInterface, _: Int ->
+                restartWebView()
+            }
+            .setNegativeButton("退出") { _: DialogInterface, _: Int ->
+                finishAffinity()
+            }
+            .show()
+    }
+
+    private fun restartWebView() {
+        crashDialog?.dismiss()
+        crashDialog = null
+
+        // 移除旧的 WebView
+        val container = findViewById<FrameLayout>(R.id.webview_container)
+        container.removeAllViews()
+
+        // 重新初始化
+        initWebView()
+        loadWebApp()
     }
 
     override fun onBackPressed() {

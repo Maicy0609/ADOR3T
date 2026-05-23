@@ -18,3 +18,17 @@ declare module 'virtual:wasm-level-loader' {
   const base64: string;
   export default base64;
 }
+
+/**
+ * GLSL shader imports via vite-plugin-glsl.
+ * .vert = vertex shader, .frag = fragment shader
+ */
+declare module '*.vert' {
+  const src: string;
+  export default src;
+}
+
+declare module '*.frag' {
+  const src: string;
+  export default src;
+}
