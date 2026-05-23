@@ -76,18 +76,8 @@ class MainActivity : AppCompatActivity() {
 
         // 2. content:// → 尝试从 ContentResolver 查询
         if (uri.scheme == "content") {
-            // DocumentProvider (如系统文件选择器)
-            val docId = try {
-                android.provider.DocumentsContract.isDocumentUri(this, uri)
-            } catch (_: Exception) { false }
-
-            if (docId) {
-                return try {
-                    android.provider.DocumentsContract.getDocumentThumbnail(this, uri, android.graphics.Size(1, 1), null)
-                    null // 不是文档 URI, 继续尝试
-                } catch (_: Exception) {
-                    resolveDocumentsContractPath(uri)
-                }
+            if (android.provider.DocumentsContract.isDocumentUri(this, uri)) {
+                return resolveDocumentsContractPath(uri)
             }
 
             // 通用 ContentResolver 查询
@@ -250,7 +240,8 @@ class MainActivity : AppCompatActivity() {
 
                     val intent = (fileChooserParams?.createIntent() ?: Intent(Intent.ACTION_GET_CONTENT)).apply {
                         addCategory(Intent.CATEGORY_OPENABLE)
-                        if (type == null || type.isEmpty()) type = "*/*"
+                        val mime = type
+                        if (mime.isNullOrEmpty()) type = "*/*"
                     }
 
                     fileChooserLauncher.launch(intent)
