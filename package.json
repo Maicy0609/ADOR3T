@@ -50,5 +50,9 @@
         "typescript": "^5.8.3",
         "vite": "^7.1.2",
         "vite-plugin-glsl": "^1.6.0"
+    },
+    "pnpm": {
+        "onlyBuiltDependencies": ["core-js", "esbuild"],
+        "minimumReleaseAge": "0 days"
     }
 }
