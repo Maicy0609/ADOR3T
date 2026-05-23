@@ -19,17 +19,12 @@ jobs:
         with:
           node-version: 24
 
-      - name: Setup pnpm via corepack
-        run: |
-          corepack enable
-          corepack prepare pnpm@latest --activate
-
       - name: Install dependencies
-        run: pnpm install
+        run: yarn install
 
       # ========== Web build ==========
       - name: Build web + push to Android assets
-        run: pnpm build:android
+        run: yarn build:android
 
       - name: Upload web dist
         uses: actions/upload-artifact@v4
