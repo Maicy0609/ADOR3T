@@ -23,9 +23,8 @@ dist-ssr
 *.sln
 *.sw?
 
-# Lockfiles
+# Lockfiles (pnpm-lock.yaml must be committed for CI reproducibility)
 package-lock.json
-pnpm-lock.yaml
 yarn.lock
 bun.lock
 
