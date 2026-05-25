@@ -310,6 +310,19 @@ export class Player implements IPlayer {
     this.moveTrackManager.initializeMoveTrackEvents(this.tileMoveTrackEvents);
     this.moveTrackManager.setTilesReference(this.tiles);
 
+    // Pass precomputed tile positions/rotations as base for MoveTrack computation.
+    // Needed because tiles may not exist yet when early MoveTrack events fire.
+    const basePositions: THREE.Vector2[] = this.levelData.tiles.map((t: any) =>
+        new THREE.Vector2(t.position[0], t.position[1])
+    );
+    this.moveTrackManager.setBasePositions(basePositions);
+
+    const baseRotations: number[] = this.levelData.tiles.map((_: any, i: number) => {
+        const transform = this.positionTrackManager?.getTileTransform(i);
+        return transform ? transform.rotation * Math.PI / 180 : 0;
+    });
+    this.moveTrackManager.setBaseRotations(baseRotations);
+
     // Sync MoveTrack animations to InstancedMeshManager (when instanced rendering is active,
     // individual tile meshes are hidden and only the InstancedMesh is visible)
     this.moveTrackManager.tileTransformChanged = (tileIndex, position, rotation, scale, opacity) => {

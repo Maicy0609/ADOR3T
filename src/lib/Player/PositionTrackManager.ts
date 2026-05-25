@@ -83,6 +83,7 @@ export class PositionTrackManager {
         if (!this.levelData.actions) return;
         for (const action of this.levelData.actions) {
             if (action.eventType !== 'PositionTrack') continue;
+            if (action.active === false) continue;
             const floor = action.floor;
             if (!this.positionTrackEvents.has(floor)) {
                 this.positionTrackEvents.set(floor, []);
@@ -159,12 +160,10 @@ export class PositionTrackManager {
 
                 // ============================================================
                 // Position offset block
-                // ADOFAI: gated by !item5.disabled["positionOffset"]
+                // Gated by !disabled["positionOffset"] (official ADOFAI behavior)
                 // Contains positionOffset ADDITION + relativeTo + vector update
                 // ============================================================
-                const posEnabled = !this.isDisabled(event, 'positionOffset');
-
-                if (posEnabled) {
+                if (!this.isDisabled(event, 'positionOffset')) {
                     let changeX = 0, changeY = 0;
 
                     // relativeTo target tile
@@ -173,12 +172,11 @@ export class PositionTrackManager {
                         targetTileId = this.IDFromTile(event.relativeTo, floor);
                     }
 
-                    // positionOffset * tileSize * currentScale
+                    // positionOffset * tileSize (official ADOFAI: constant tileSize, not affected by ScaleRadius)
                     if (event.positionOffset) {
                         const pos = this.normalizeVec2(event.positionOffset);
-                        const s = workingScale[floor];
-                        changeX += pos[0] * TILE_SIZE * s;
-                        changeY += pos[1] * TILE_SIZE * s;
+                        changeX += pos[0] * TILE_SIZE;
+                        changeY += pos[1] * TILE_SIZE;
                     }
 
                     // relativeTo difference
@@ -207,7 +205,7 @@ export class PositionTrackManager {
                 }
 
                 // ============================================================
-                // Scale (not gated by positionOffset disabled, gated by its own disabled flag)
+                // Scale — gated by !disabled["scale"] (official: TryGetAndSet with onlyIfEnabled)
                 // ADOFAI: output3 /= 100f; if (!justThisTile) num10 = output3
                 // ============================================================
                 if (event.scale !== undefined && event.scale !== null && !this.isDisabled(event, 'scale')) {
@@ -222,7 +220,7 @@ export class PositionTrackManager {
                 }
 
                 // ============================================================
-                // Rotation
+                // Rotation — gated by !disabled["rotation"]
                 // ============================================================
                 if (event.rotation !== undefined && event.rotation !== null && !this.isDisabled(event, 'rotation')) {
                     if (event.justThisTile) {
@@ -235,7 +233,7 @@ export class PositionTrackManager {
                 }
 
                 // ============================================================
-                // Opacity
+                // Opacity — gated by !disabled["opacity"]
                 // ============================================================
                 if (event.opacity !== undefined && event.opacity !== null && !this.isDisabled(event, 'opacity')) {
                     const o = event.opacity / 100;
@@ -249,7 +247,7 @@ export class PositionTrackManager {
                 }
 
                 // ============================================================
-                // stickToFloors
+                // stickToFloors — gated by !disabled["stickToFloors"]
                 // ============================================================
                 if (event.stickToFloors !== undefined && !this.isDisabled(event, 'stickToFloors')) {
                     const st = this.parseStickToFloors(event.stickToFloors);
