@@ -1,0 +1,153 @@
+export class OverlayHUD {
+  private canvas: HTMLCanvasElement;
+  private ctx: CanvasRenderingContext2D;
+  private container: HTMLElement;
+  private dpr: number = 1;
+
+  private fps: number = 0;
+  private time: number = 0;
+  private tileIndex: number = 0;
+  private totalTiles: number = 0;
+  private tileBPM: number[] = [];
+  private tileStartTimes: number[] = [];
+
+  private readonly p = 8;
+  private readonly lh = 18;
+  private readonly fs = 13;
+
+  constructor(container: HTMLElement) {
+    this.container = container;
+    this.canvas = document.createElement('canvas');
+    this.canvas.style.position = 'absolute';
+    this.canvas.style.top = '0';
+    this.canvas.style.left = '0';
+    this.canvas.style.width = '100%';
+    this.canvas.style.height = '100%';
+    this.canvas.style.pointerEvents = 'none';
+    this.canvas.style.zIndex = '9999';
+    container.appendChild(this.canvas);
+    this.ctx = this.canvas.getContext('2d')!;
+    this.resize();
+  }
+
+  resize(): void {
+    this.dpr = window.devicePixelRatio || 1;
+    const w = this.container.clientWidth;
+    const h = this.container.clientHeight;
+    if (w === 0 || h === 0) return;
+    this.canvas.width = Math.ceil(w * this.dpr);
+    this.canvas.height = Math.ceil(h * this.dpr);
+  }
+
+  update(stats: {
+    fps: number;
+    time: number;
+    tileIndex: number;
+    tileBPM: number[];
+    tileStartTimes: number[];
+    totalTiles: number;
+  }): void {
+    this.fps = stats.fps;
+    this.time = stats.time;
+    this.tileIndex = stats.tileIndex;
+    this.totalTiles = stats.totalTiles;
+    this.tileBPM = stats.tileBPM;
+    this.tileStartTimes = stats.tileStartTimes;
+  }
+
+  render(): void {
+    const ctx = this.ctx;
+    const w = this.container.clientWidth;
+    const h = this.container.clientHeight;
+    if (w === 0 || h === 0) return;
+
+    ctx.save();
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+
+    this.drawFPS(ctx, w, h);
+    this.drawPanel(ctx, w, h, this.computeText());
+
+    ctx.restore();
+  }
+
+  private drawFPS(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+    const text = `FPS  ${this.fps.toFixed(2)}`;
+    ctx.font = `${this.fs}px monospace`;
+    const tw = ctx.measureText(text).width;
+    const x = 16;
+    const y = 64;
+    const bw = tw + this.p * 2;
+    const bh = this.lh + this.p;
+
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(x, y, bw, bh);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, x + this.p, y + bh / 2);
+  }
+
+  private drawPanel(ctx: CanvasRenderingContext2D, w: number, h: number, text: string): void {
+    const lines = text.split('\n');
+    ctx.font = `${this.fs}px monospace`;
+    let maxW = 0;
+    for (const l of lines) {
+      const m = ctx.measureText(l).width;
+      if (m > maxW) maxW = m;
+    }
+    const px = w - maxW - this.p * 2 - 16;
+    const py = 64;
+    const pw = maxW + this.p * 2;
+    const ph = lines.length * this.lh + this.p * 2;
+
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(px, py, pw, ph);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.textBaseline = 'top';
+    for (let i = 0; i < lines.length; i++) {
+      ctx.fillText(lines[i], px + this.p, py + this.p + i * this.lh);
+    }
+  }
+
+  private computeText(): string {
+    const { tileIndex, time, totalTiles, tileBPM, tileStartTimes } = this;
+
+    const tbpm = tileBPM[tileIndex] ?? 0;
+    let cbpm = tbpm;
+    if (tileIndex < totalTiles - 1 && tileIndex >= 0 && tileStartTimes.length > tileIndex + 1) {
+      const tCurrent = tileStartTimes[tileIndex] ?? 0;
+      const tNext = tileStartTimes[tileIndex + 1] ?? 0;
+      const dt = tNext - tCurrent;
+      if (dt > 0) cbpm = 60 / dt;
+    }
+
+    const timeInLevelSec = Math.max(0, time / 1000);
+    const totalMapTime =
+      tileStartTimes.length > 0 ? (tileStartTimes[tileStartTimes.length - 1] ?? 0) : 0;
+    const currentMapTime = Math.min(timeInLevelSec, totalMapTime);
+    const mapTime = `${formatTimePrecise(currentMapTime)}~${formatTimePrecise(totalMapTime)}`;
+
+    const safeTile = Math.min(tileIndex + 1, totalTiles);
+    const pct = totalTiles > 0 ? (safeTile / totalTiles) * 100 : 0;
+    const tiles = `${safeTile} / ${totalTiles} (${pct.toFixed(1)}%)`;
+
+    return `TBPM | ${tbpm.toFixed(2)}\nCBPM | ${cbpm.toFixed(2)}\nMap Time | ${mapTime}\nTiles | ${tiles}`;
+  }
+
+  dispose(): void {
+    if (this.canvas.parentNode) {
+      this.canvas.parentNode.removeChild(this.canvas);
+    }
+  }
+}
+
+function formatTimePrecise(seconds: number): string {
+  if (!isFinite(seconds) || seconds < 0) seconds = 0;
+  const m = Math.floor(seconds / 60);
+  const sFloat = seconds % 60;
+  const s = Math.floor(sFloat);
+  const d = Math.floor((sFloat - s) * 10);
+  return `${m}:${s.toString().padStart(2, '0')}.${d}`;
+}

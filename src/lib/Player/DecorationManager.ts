@@ -1,868 +1,959 @@
 import * as THREE from 'three';
-import { Decoration, DecorationConfig, DecPlacementType, defaultDecorationConfig } from './Decoration';
 import { EasingFunctions } from './Easing';
+import createTrackMesh, { MeshData } from '../Geo/mesh_reserve';
 
 /**
- * Interface for level data
+ * Parse ADOFAI hex color which may be #RRGGBBAA (8-digit with alpha).
+ * Returns [rgbString, alpha01] where rgbString is #RRGGBB and alpha01 is 0..1.
+ * THREE.Color only accepts #RRGGBB, so alpha must be split out.
  */
-interface ILevelData {
-    settings: any;
-    tiles: any[];
-    actions?: any[];
-    decorations?: any[];
+function parseDecoColor(hex: string | undefined, fallback: string = 'ffffff'): [string, number] {
+    const raw = (hex || fallback).replace(/^#/, '');
+    if (raw.length >= 8) {
+        const alpha = parseInt(raw.slice(6, 8), 16) / 255;
+        return ['#' + raw.slice(0, 6), alpha];
+    }
+    return ['#' + raw.slice(0, 6), 1];
 }
 
-/**
- * Decoration Manager - handles creation, updates, and animation of decorations
- */
+export enum DecorationType {
+    Image = 'Image',
+    Text = 'Text',
+    Object = 'Object',
+    Particle = 'Particle',
+    Prefab = 'Prefab'
+}
+
+export enum DecPlacementType {
+    Tile = 'Tile',
+    Camera = 'Camera',
+    CameraAspect = 'CameraAspect',
+    LastPosition = 'LastPosition'
+}
+
+export interface DecorationConfig {
+    id?: string;
+    tag: string;
+    decorationType: DecorationType;
+    decorationImage: string;
+    decText?: string;
+    position: [number, number];
+    positionOffset: [number, number];
+    relativeTo: DecPlacementType;
+    rotation: number;
+    rotationOffset: number;
+    scale: [number, number];
+    parallax: [number, number];
+    parallaxOffset: [number, number];
+    pivotOffset: [number, number];
+    depth: number;
+    color: string;
+    opacity: number;
+    lockScale: boolean;
+    lockRotation: boolean;
+    visible: boolean;
+    floor?: number;
+    animating: boolean;
+    animationStart: number;
+    animationDuration: number;
+    animationStartValues: Partial<DecorationConfig>;
+    animationTargetValues: Partial<DecorationConfig>;
+    animationEase: string;
+    objectType?: string;
+    planetColorType?: string;
+    planetColor?: string;
+    planetTailColor?: string;
+    trackColor?: string;
+    trackColor2?: string;
+    trackOpacity?: number;
+    trackStyle?: string;
+    trackIcon?: string;
+}
+
+const defaultDecorationConfig: DecorationConfig = {
+    tag: '',
+    decorationType: DecorationType.Image,
+    decorationImage: '',
+    decText: '',
+    position: [0, 0],
+    positionOffset: [0, 0],
+    relativeTo: DecPlacementType.Tile,
+    rotation: 0,
+    rotationOffset: 0,
+    scale: [100, 100],
+    parallax: [100, 100],
+    parallaxOffset: [0, 0],
+    pivotOffset: [0, 0],
+    depth: 0,
+    color: 'ffffff',
+    opacity: 100,
+    lockScale: false,
+    lockRotation: false,
+    visible: true,
+    animating: false,
+    animationStart: 0,
+    animationDuration: 0,
+    animationStartValues: {},
+    animationTargetValues: {},
+    animationEase: 'Linear'
+};
+
+class DecorationInstance {
+    public config: DecorationConfig;
+    public container: THREE.Group;
+    public mesh: THREE.Mesh | null = null;
+    public sprite: THREE.Sprite | null = null;
+    public objectGroup: THREE.Group | null = null;
+    public iconMesh: THREE.Mesh | null = null;
+    public startPos: THREE.Vector2 = new THREE.Vector2();
+    public pivotPos: THREE.Vector2 = new THREE.Vector2();
+    public currentPosition: THREE.Vector2 = new THREE.Vector2();
+    public currentScale: THREE.Vector2 = new THREE.Vector2(1, 1);
+    public currentRotation: number = 0;
+    public currentColor: THREE.Color = new THREE.Color(0xffffff);
+    public currentOpacity: number = 1;
+    public currentParallax: THREE.Vector2 = new THREE.Vector2(1, 1);
+    public currentParallaxOffset: THREE.Vector2 = new THREE.Vector2();
+    private animStartColor: THREE.Color = new THREE.Color();
+    private animTargetColor: THREE.Color = new THREE.Color();
+    private originalVisible: boolean = true;
+
+    constructor(config: Partial<DecorationConfig>) {
+        this.config = { ...defaultDecorationConfig, ...config };
+        this.container = new THREE.Group();
+        this.container.name = `decoration_${this.config.tag || 'untagged'}`;
+        this.currentScale.set(this.config.scale[0] / 100, this.config.scale[1] / 100);
+        this.currentRotation = this.config.rotation + this.config.rotationOffset;
+        // Parse color with alpha: #RRGGBBAA → color=#RRGGBB, alpha extracted
+        const [colorHex, colorAlpha] = parseDecoColor(this.config.color);
+        this.currentColor.set(colorHex);
+        this.currentOpacity = (this.config.opacity / 100) * colorAlpha;
+        this.currentPosition.set(this.config.position[0], this.config.position[1]);
+        this.currentParallax.set(this.config.parallax[0] / 100, this.config.parallax[1] / 100);
+        this.currentParallaxOffset.set(this.config.parallaxOffset[0], this.config.parallaxOffset[1]);
+        this.originalVisible = this.config.visible;
+    }
+
+    private formatHex(hex: string): string {
+        // Strip alpha channel if present (#RRGGBBAA → #RRGGBB)
+        const raw = hex.replace(/^#/, '');
+        return '#' + raw.slice(0, 6);
+    }
+
+    public setupVisual(texture: THREE.Texture | null): void {
+        this.clearVisual();
+        if (this.config.decorationType === DecorationType.Object) return;
+        if (!texture) {
+            const g = new THREE.PlaneGeometry(1, 1);
+            const m = new THREE.MeshBasicMaterial({ color: 0xff00ff, transparent: true, opacity: 0.5, side: THREE.DoubleSide });
+            this.mesh = new THREE.Mesh(g, m);
+            this.container.add(this.mesh);
+        } else {
+            const mat = new THREE.SpriteMaterial({
+                map: texture, color: 0xffffff, transparent: true, opacity: this.currentOpacity
+            });
+            this.sprite = new THREE.Sprite(mat);
+            let ar = 1;
+            if (texture.image?.width && texture.image?.height) ar = texture.image.width / texture.image.height;
+            ar >= 1
+                ? this.sprite.scale.set(ar, 1, 1)
+                : this.sprite.scale.set(1, 1 / ar, 1);
+            this.sprite.center.set(0.5, 0.5);
+            this.container.add(this.sprite);
+        }
+        this.updateTransform();
+    }
+
+    private clearVisual(): void {
+        if (this.mesh) { this.container.remove(this.mesh); this.mesh.geometry.dispose(); (this.mesh.material as THREE.Material).dispose(); this.mesh = null; }
+        if (this.sprite) { this.container.remove(this.sprite); (this.sprite.material as THREE.Material).dispose(); this.sprite = null; }
+        if (this.objectGroup) { this.container.remove(this.objectGroup); this.objectGroup = null; }
+        this.iconMesh = null;
+    }
+
+    public updateTransform(): void {
+        this.container.rotation.z = this.currentRotation * Math.PI / 180;
+        const d = this.config.depth;
+        let z: number, ro: number;
+        if (d < 0) { z = 0.2 + d * 0.1; ro = 200 + d; }
+        else if (d === 0) { z = 0.15; ro = 50; }
+        else { z = -0.5 - d * 0.5; ro = -d * 10; }
+        this.container.position.set(this.currentPosition.x, this.currentPosition.y, z);
+        if (this.mesh) { this.mesh.renderOrder = ro; (this.mesh.material as THREE.MeshBasicMaterial).color.copy(this.currentColor); (this.mesh.material as THREE.MeshBasicMaterial).opacity = this.currentOpacity; }
+        if (this.sprite) { this.sprite.renderOrder = ro; (this.sprite.material as THREE.SpriteMaterial).opacity = this.currentOpacity; }
+        if (this.iconMesh) { this.iconMesh.renderOrder = ro + 1; (this.iconMesh.material as THREE.MeshBasicMaterial).opacity = this.currentOpacity; }
+    }
+
+    public updatePosition(camPos: THREE.Vector3, camRot: number, camZoom: number): void {
+        let sm = 1;
+        if (this.config.lockScale && camZoom > 0) sm = 100 / camZoom;
+        const ct = this.config.relativeTo;
+        if (ct === DecPlacementType.Camera || ct === DecPlacementType.CameraAspect) {
+            this.container.position.x = camPos.x + this.currentPosition.x;
+            this.container.position.y = camPos.y + this.currentPosition.y;
+            this.container.rotation.z = this.config.lockRotation
+                ? camRot + this.currentRotation * Math.PI / 180
+                : this.currentRotation * Math.PI / 180;
+        } else {
+            const px = (camPos.x - this.pivotPos.x) * this.currentParallax.x;
+            const py = (camPos.y - this.pivotPos.y) * this.currentParallax.y;
+            this.container.position.x = this.currentPosition.x + px + this.currentParallaxOffset.x;
+            this.container.position.y = this.currentPosition.y + py + this.currentParallaxOffset.y;
+            this.container.rotation.z = this.config.lockRotation
+                ? camRot + this.currentRotation * Math.PI / 180
+                : this.currentRotation * Math.PI / 180;
+        }
+        this.container.scale.set(this.currentScale.x * sm, this.currentScale.y * sm, 1);
+    }
+
+    public updateAnimation(now: number): void {
+        if (!this.config.animating) return;
+        const el = now - this.config.animationStart;
+        const dur = this.config.animationDuration;
+        if (dur <= 0) { this.config.animating = false; this.applyAnimationTarget(); return; }
+        if (el >= dur) { this.config.animating = false; this.applyAnimationTarget(); return; }
+        const p = Math.max(0, Math.min(1, el / dur));
+        const ease = (EasingFunctions as any)[this.config.animationEase] || EasingFunctions.Linear;
+        const ep = ease(p);
+        const s = this.config.animationStartValues;
+        const t = this.config.animationTargetValues;
+        if (s.positionOffset && t.positionOffset) {
+            this.currentPosition.x = s.positionOffset[0] + (t.positionOffset[0] - s.positionOffset[0]) * ep;
+            this.currentPosition.y = s.positionOffset[1] + (t.positionOffset[1] - s.positionOffset[1]) * ep;
+            this.pivotPos.copy(this.currentPosition);
+        }
+        if (s.rotationOffset !== undefined && t.rotationOffset !== undefined) {
+            this.currentRotation = this.config.rotation + s.rotationOffset + (t.rotationOffset - s.rotationOffset) * ep;
+        }
+        if (s.scale && t.scale) {
+            this.currentScale.x = (s.scale[0] + (t.scale[0] - s.scale[0]) * ep) / 100;
+            this.currentScale.y = (s.scale[1] + (t.scale[1] - s.scale[1]) * ep) / 100;
+        }
+        if (s.opacity !== undefined && t.opacity !== undefined) {
+            this.currentOpacity = (s.opacity + (t.opacity - s.opacity) * ep) / 100;
+        }
+        if (s.color && t.color) {
+            this.animStartColor.set(this.formatHex(s.color));
+            this.animTargetColor.set(this.formatHex(t.color));
+            this.currentColor.lerpColors(this.animStartColor, this.animTargetColor, ep);
+        }
+        if (s.parallax && t.parallax) {
+            this.currentParallax.x = (s.parallax[0] + (t.parallax[0] - s.parallax[0]) * ep) / 100;
+            this.currentParallax.y = (s.parallax[1] + (t.parallax[1] - s.parallax[1]) * ep) / 100;
+        }
+        if (s.parallaxOffset && t.parallaxOffset) {
+            this.currentParallaxOffset.x = s.parallaxOffset[0] + (t.parallaxOffset[0] - s.parallaxOffset[0]) * ep;
+            this.currentParallaxOffset.y = s.parallaxOffset[1] + (t.parallaxOffset[1] - s.parallaxOffset[1]) * ep;
+        }
+        this.updateTransform();
+    }
+
+    private applyAnimationTarget(): void {
+        const t = this.config.animationTargetValues;
+        if (t.positionOffset) { this.currentPosition.set(t.positionOffset[0], t.positionOffset[1]); this.pivotPos.copy(this.currentPosition); }
+        if (t.rotationOffset !== undefined) this.currentRotation = this.config.rotation + t.rotationOffset;
+        if (t.scale) { this.currentScale.x = t.scale[0] / 100; this.currentScale.y = t.scale[1] / 100; }
+        if (t.opacity !== undefined) this.currentOpacity = t.opacity / 100;
+        if (t.color) {
+            const [hex, alpha] = parseDecoColor(t.color);
+            this.currentColor.set(hex);
+            this.currentOpacity *= alpha;
+        }
+        if (t.parallax) { this.currentParallax.x = t.parallax[0] / 100; this.currentParallax.y = t.parallax[1] / 100; }
+        if (t.parallaxOffset) { this.currentParallaxOffset.set(t.parallaxOffset[0], t.parallaxOffset[1]); }
+        if (t.depth !== undefined) this.config.depth = t.depth;
+        if (t.visible !== undefined) { this.config.visible = t.visible; this.container.visible = t.visible; }
+        this.updateTransform();
+    }
+
+    public startAnimation(targetValues: Partial<DecorationConfig>, duration: number, ease: string, startTime: number, movementType: DecPlacementType): void {
+        if (this.config.animating) { this.applyAnimationTarget(); this.config.animating = false; }
+        const animStartPos = movementType === DecPlacementType.LastPosition
+            ? new THREE.Vector2(this.currentPosition.x, this.currentPosition.y)
+            : new THREE.Vector2(this.startPos.x, this.startPos.y);
+        // Start values snap from CURRENT state (not config), so consecutive tweens don't jump
+        this.config.animationStartValues = {
+            positionOffset: [this.currentPosition.x, this.currentPosition.y],
+            rotationOffset: this.currentRotation - this.config.rotation,
+            scale: [this.currentScale.x * 100, this.currentScale.y * 100],
+            color: '#' + this.currentColor.getHexString(),
+            opacity: this.currentOpacity * 100,
+            parallax: [this.currentParallax.x * 100, this.currentParallax.y * 100],
+            parallaxOffset: [this.currentParallaxOffset.x, this.currentParallaxOffset.y],
+        };
+        this.config.animationTargetValues = { ...targetValues };
+        if (targetValues.positionOffset) {
+            // Target is always relative to the original reference (startPos or currentPos for LastPosition)
+            this.config.animationTargetValues.positionOffset = [
+                animStartPos.x + targetValues.positionOffset[0],
+                animStartPos.y + targetValues.positionOffset[1]
+            ];
+        }
+        // RotationOffset is additive in the game: currentRotation + event.rotationOffset
+        if (targetValues.rotationOffset !== undefined) {
+            this.config.animationTargetValues.rotationOffset = (this.currentRotation - this.config.rotation) + targetValues.rotationOffset;
+        }
+        this.config.animating = true;
+        this.config.animationStart = startTime;
+        this.config.animationDuration = duration;
+        this.config.animationEase = ease;
+    }
+
+    public reset(): void {
+        this.config.animating = false;
+        this.config.animationStartValues = {};
+        this.config.animationTargetValues = {};
+        this.config.visible = this.originalVisible;
+        this.currentScale.set(this.config.scale[0] / 100, this.config.scale[1] / 100);
+        this.currentRotation = this.config.rotation + this.config.rotationOffset;
+        const [colorHex, colorAlpha] = parseDecoColor(this.config.color);
+        this.currentColor.set(colorHex);
+        this.currentOpacity = (this.config.opacity / 100) * colorAlpha;
+        this.currentPosition.copy(this.startPos);
+        this.pivotPos.copy(this.startPos);
+        this.currentParallax.set(this.config.parallax[0] / 100, this.config.parallax[1] / 100);
+        this.currentParallaxOffset.set(this.config.parallaxOffset[0], this.config.parallaxOffset[1]);
+        this.container.visible = this.originalVisible;
+        this.updateTransform();
+    }
+
+    public dispose(): void {
+        this.clearVisual();
+    }
+}
+
 export class DecorationManager {
     private scene: THREE.Scene;
     private container: THREE.Group;
-    private levelData: ILevelData;
-    
-    // All decorations indexed by ID
-    private decorations: Map<string, Decoration> = new Map();
-    
-    // Decorations indexed by tag for MoveDecorations events
-    private taggedDecorations: Map<string, Decoration[]> = new Map();
-    
-    // Decorations indexed by floor number
-    private floorDecorations: Map<number, Decoration[]> = new Map();
-    
-    // Timeline for MoveDecorations events
-    private decorationEventsTimeline: { time: number; event: any }[] = [];
-    private lastDecorationEventIndex: number = -1;
-    
-    // Cached tile positions and timing
+    private levelData: any;
     private tileStartTimes: number[];
     private tileBPM: number[];
-    
-    // Texture cache
+    private decorations: Map<string, DecorationInstance> = new Map();
+    private taggedDecorations: Map<string, DecorationInstance[]> = new Map();
+    private decorationEventsTimeline: { time: number; event: any }[] = [];
+    private lastDecorationEventIndex: number = -1;
+    private pendingDecorationEvents: any[] = [];
+    private tileSize: number = 1.0;
     private textureLoader: THREE.TextureLoader;
     private textureCache: Map<string, THREE.Texture> = new Map();
-    private customImages: Map<string, string> = new Map(); // filename -> base64 or URL
-    private placeholderTexture: THREE.Texture | null = null; // Cached placeholder
-    
-    // Loading state
+    private customImages: Map<string, string> = new Map();
     private texturesLoading: Set<string> = new Set();
     private texturesLoaded: Set<string> = new Set();
-    
-    // Tile size for coordinate conversion
-    private tileSize: number = 1.0;
-    
-    constructor(
-        scene: THREE.Scene,
-        levelData: ILevelData,
-        tileStartTimes: number[],
-        tileBPM: number[]
-    ) {
+    private placeholderTexture: THREE.Texture | null = null;
+
+    constructor(scene: THREE.Scene, levelData: any, tileStartTimes: number[], tileBPM: number[]) {
         this.scene = scene;
         this.levelData = levelData;
         this.tileStartTimes = tileStartTimes;
         this.tileBPM = tileBPM;
-        
         this.container = new THREE.Group();
         this.container.name = 'DecorationContainer';
         this.scene.add(this.container);
-        
         this.textureLoader = new THREE.TextureLoader();
     }
-    
-    /**
-     * Preload all required textures asynchronously
-     * Returns a promise that resolves when all textures are loaded
-     */
-    public async preloadTextures(): Promise<number> {
-        // Collect all unique image filenames from decorations
-        const imageFilenames = new Set<string>();
-        
-        this.decorations.forEach((decoration) => {
-            const img = decoration.config.decorationImage;
-            if (img) {
-                imageFilenames.add(img);
-            }
-        });
-        
-        if (imageFilenames.size === 0) {
-            return 0;
-        }
-        
-        console.log('[DecorationManager] Preloading', imageFilenames.size, 'textures...');
-        console.log('[DecorationManager] Images to load:', Array.from(imageFilenames));
-        console.log('[DecorationManager] Custom images registered:', Array.from(this.customImages.keys()));
-        
-        // Load textures in parallel
-        const loadPromises: Promise<void>[] = [];
-        
-        imageFilenames.forEach((filename) => {
-            loadPromises.push(this.loadTextureAsync(filename));
-        });
-        
-        await Promise.all(loadPromises);
-        
-        console.log('[DecorationManager] Preloaded', this.texturesLoaded.size, 'textures');
-        
-        // Update all decorations with loaded textures
-        this.decorations.forEach((decoration) => {
-            const filename = decoration.config.decorationImage;
-            if (filename) {
-                // Check cache by exact filename
-                let texture = this.textureCache.get(filename);
-                // If not found, check by base name
-                if (!texture) {
-                    const baseName = this.getBaseName(filename);
-                    texture = this.textureCache.get(baseName);
-                }
-                if (texture) {
-                    console.log('[DecorationManager] Updating decoration texture:', filename);
-                    decoration.setupVisual(texture);
-                } else {
-                    console.log('[DecorationManager] No texture found for decoration:', filename);
-                }
-            }
-        });
-        
-        return this.texturesLoaded.size;
-    }
-    
-    /**
-     * Load a single texture asynchronously
-     */
-    private loadTextureAsync(filename: string): Promise<void> {
-        return new Promise((resolve) => {
-            // Check if already cached
-            if (this.textureCache.has(filename)) {
-                resolve();
-                return;
-            }
-            
-            // Find matching custom image URL (flexible matching)
-            const customUrl = this.findCustomImageUrl(filename);
-            if (!customUrl) {
-                console.log('[DecorationManager] No custom image found for:', filename);
-                // No custom image, will use placeholder
-                resolve();
-                return;
-            }
-            
-            // Skip if already loading
-            if (this.texturesLoading.has(filename)) {
-                resolve();
-                return;
-            }
-            
-            console.log('[DecorationManager] Loading texture:', filename, 'from URL');
-            this.texturesLoading.add(filename);
-            
-            this.textureLoader.load(
-                customUrl,
-                (texture) => {
-                    texture.colorSpace = THREE.SRGBColorSpace;
-                    this.textureCache.set(filename, texture);
-                    this.texturesLoaded.add(filename);
-                    this.texturesLoading.delete(filename);
-                    console.log('[DecorationManager] Texture loaded successfully:', filename);
-                    resolve();
-                },
-                undefined,
-                (error) => {
-                    console.warn('[DecorationManager] Failed to load texture:', filename, error);
-                    this.texturesLoading.delete(filename);
-                    resolve(); // Resolve anyway, will use placeholder
-                }
-            );
-        });
-    }
-    
-    /**
-     * Initialize decorations from level data
-     */
+
     public init(): void {
-        console.log('[DecorationManager] Initializing decorations...');
         this.clear();
-        
-        // Parse AddDecoration events from decorations array (if exists at root level)
-        const rootDecorations = this.levelData.decorations || (this.levelData as any).__decorations;
-        let decorationCount = 0;
-        
-        if (rootDecorations && Array.isArray(rootDecorations)) {
-            console.log(`[DecorationManager] Found ${rootDecorations.length} root-level decorations`);
-            rootDecorations.forEach((dec: any, index: number) => {
-                if (dec.eventType === 'AddDecoration') {
-                    const result = this.createDecoration(dec, decorationCount++);
-                    if (result) {
-                        console.log(`[DecorationManager] Created decoration: ${result.config.id} with image: ${result.config.decorationImage}`);
-                    } else {
-                        console.warn(`[DecorationManager] Failed to create decoration at index ${index}`);
+        const rootDecos = this.levelData.decorations || (this.levelData as any).__decorations || [];
+        const tiles = this.levelData.tiles || [];
+
+        for (const dec of rootDecos) {
+            if (dec.eventType === 'AddDecoration' || dec.eventType === 'AddText' || dec.eventType === 'AddObject') {
+                this.tryCreateDecoration(dec);
+            }
+        }
+        for (const tile of tiles) {
+            if (tile.addDecorations) {
+                for (const dec of tile.addDecorations) {
+                    if (dec.eventType === 'AddDecoration' || dec.eventType === 'AddText' || dec.eventType === 'AddObject') {
+                        this.tryCreateDecoration({ ...dec, floor: dec.floor ?? tile.seqID ?? tiles.indexOf(tile) });
                     }
-                } else if (dec.eventType === 'AddText') {
-                    this.createTextDecoration(dec, decorationCount++);
                 }
-            });
+            }
         }
-        
-        // Parse AddDecoration events from tiles.addDecorations (ADOFAI format)
-        const tiles = this.levelData.tiles;
-        if (tiles && Array.isArray(tiles)) {
-            let tileDecoCount = 0;
-            tiles.forEach((tile: any, tileIndex: number) => {
-                if (tile.addDecorations && Array.isArray(tile.addDecorations)) {
-                    tile.addDecorations.forEach((dec: any) => {
-                        // Add floor property if not present
-                        const decWithFloor = { ...dec, floor: dec.floor ?? tileIndex };
-                        if (dec.eventType === 'AddDecoration') {
-                            const result = this.createDecoration(decWithFloor, decorationCount++);
-                            if (result) {
-                                tileDecoCount++;
-                                console.log(`[DecorationManager] Created tile decoration: ${result.config.id} on tile ${tileIndex}`);
-                            }
-                        } else if (dec.eventType === 'AddText') {
-                            this.createTextDecoration(decWithFloor, decorationCount++);
-                        }
-                    });
-                }
-            });
-            console.log(`[DecorationManager] Created ${tileDecoCount} tile-level decorations`);
-        }
-        
-        console.log(`[DecorationManager] Total decorations created: ${this.decorations.size}`);
-        console.log('[DecorationManager] Registered images:', Array.from(this.customImages.keys()));
-        
-        // Always build events timeline (MoveDecorations are in actions)
         this.buildDecorationEventsTimeline();
     }
-    
-    /**
-     * Create a decoration from AddDecoration event
-     * 
-     * Based on official ADOFAI source (scrDecoration.cs Setup method):
-     * - position: used as-is for coordinate calculation
-     * - parallaxOffset: multiplied by tileSize
-     * - pivotOffset: multiplied by tileSize (unless Camera-relative)
-     * - scale/opacity: stored as percentages (100-based), converted in Decoration
-     */
-    private createDecoration(event: any, index: number): Decoration | null {
-        const relativeTo = this.parsePlacementType(event.relativeTo);
-        const isCameraRelative = relativeTo === DecPlacementType.Camera || relativeTo === DecPlacementType.CameraAspect;
-        
-        // Parse position (tileSize multiplier depends on relativeTo)
-        const rawPosition = this.parseVector2(event.position, [0, 0]);
-        
-        // Parse parallaxOffset - always multiply by tileSize (official: vector4 * tileSize)
-        const rawParallaxOffset = this.parseVector2(event.parallaxOffset, [0, 0]);
-        const parallaxOffset: [number, number] = [
-            rawParallaxOffset[0] * this.tileSize,
-            rawParallaxOffset[1] * this.tileSize
-        ];
-        
+
+    private tryCreateDecoration(event: any): DecorationInstance | null {
+        if (event.active === false) return null;
+        if (event.editorOnly === true) return null;
+        const deco = this.createDecoration(event);
+        if (!deco) this.pendingDecorationEvents.push(event);
+        return deco;
+    }
+
+    private computeStartPos(position: [number, number], relativeTo: DecPlacementType, floor?: number): THREE.Vector2 {
+        const tiles = this.levelData.tiles;
+        const ts = this.tileSize;
+        let pos = new THREE.Vector2(position[0] * ts, position[1] * ts);
+        if (relativeTo === DecPlacementType.Tile && floor !== undefined && tiles?.[floor]?.position) {
+            const tp = tiles[floor].position;
+            pos.x += tp[0]; pos.y += tp[1];
+        } else if (relativeTo === DecPlacementType.Camera || relativeTo === DecPlacementType.CameraAspect) {
+            pos.x /= ts; pos.y /= ts;
+        }
+        return pos;
+    }
+
+    private createDecoration(event: any): DecorationInstance | null {
+        if (event.active === false) return null;
+        if (event.editorOnly === true) return null;
+
+        const relativeTo = this.parsePlacement(event.relativeTo);
+        const rawPos = this.parseVec2(event.position, [0, 0]);
+        const rawParallaxOffset = this.parseVec2(event.parallaxOffset, [0, 0]);
+        const rawPivotOffset = this.parseVec2(event.pivotOffset, [0, 0]);
+        const ts = this.tileSize;
+        const isCam = relativeTo === DecPlacementType.Camera || relativeTo === DecPlacementType.CameraAspect;
+
+        const floor = event.floor !== undefined ? event.floor
+            : event.parentFloorNum !== undefined ? event.parentFloorNum
+            : 0;
+        const decoType = event.eventType === 'AddText' ? DecorationType.Text
+            : event.eventType === 'AddObject' ? DecorationType.Object
+            : DecorationType.Image;
+
         const config: Partial<DecorationConfig> = {
-            id: `dec_${index}`,
+            decorationType: decoType,
+            id: `dec_${event.eventType}_${floor ?? 0}_${Math.random().toString(36).slice(2, 6)}`,
             tag: event.tag || '',
             decorationImage: event.decorationImage || '',
-            position: rawPosition,
-            positionOffset: this.parseVector2(event.positionOffset, [0, 0]),
-            relativeTo: relativeTo,
+            decText: event.decText || '',
+            position: rawPos,
+            positionOffset: this.parseVec2(event.positionOffset, [0, 0]),
+            relativeTo,
             rotation: event.rotation || 0,
             rotationOffset: event.rotationOffset || 0,
-            scale: this.parseVector2(event.scale, [100, 100]),
-            parallax: this.parseVector2(event.parallax, [100, 100]),
-            parallaxOffset: parallaxOffset,
+            scale: this.parseVec2(event.scale, [100, 100]),
+            parallax: this.parseVec2(event.parallax, [100, 100]),
+            parallaxOffset: [rawParallaxOffset[0] * ts, rawParallaxOffset[1] * ts],
+            pivotOffset: [rawPivotOffset[0] * (isCam ? 1 : ts), rawPivotOffset[1] * (isCam ? 1 : ts)],
             depth: event.depth || 0,
             color: event.color || 'ffffff',
             opacity: event.opacity !== undefined ? event.opacity : 100,
             lockScale: event.lockScale === true,
             lockRotation: event.lockRotation === true,
             visible: event.visible !== undefined ? event.visible : true,
-            floor: event.floor
+            floor,
+            objectType: event.objectType,
+            planetColorType: event.planetColorType,
+            planetColor: event.planetColor,
+            planetTailColor: event.planetTailColor,
+            trackColor: event.trackColor,
+            trackColor2: event.trackColor2 || event.trackColor,
+            trackOpacity: event.trackOpacity,
+            trackStyle: event.trackStyle,
+            trackIcon: event.trackIcon,
         };
-        
-        const decoration = new Decoration(config);
-        
-        // Set initial position based on placement type
-        // Official: SetPlacementType method determines startPos
-        if (config.floor !== undefined && relativeTo === DecPlacementType.Tile) {
-            // Tile-relative: position is added to tile position
-            const tile = this.levelData.tiles[config.floor];
-            if (tile && tile.position) {
-                const tilePos = new THREE.Vector2(tile.position[0], tile.position[1]);
-                // startPos = tile position + position * tileSize (official behavior)
-                decoration.startPos.set(
-                    tilePos.x + rawPosition[0],
-                    tilePos.y + rawPosition[1]
-                );
-                decoration.pivotPos.copy(decoration.startPos);
-                decoration.currentPosition.copy(decoration.startPos);
-            }
-        } else if (isCameraRelative) {
-            // Camera-relative: position is direct offset from camera
-            // Official: for Camera/CameraAspect, position is not multiplied by tileSize
-            decoration.startPos.set(rawPosition[0], rawPosition[1]);
-            decoration.pivotPos.set(0, 0);
-            decoration.currentPosition.copy(decoration.startPos);
+
+        const deco = new DecorationInstance(config);
+        deco.startPos.copy(this.computeStartPos(rawPos, relativeTo, floor));
+        deco.pivotPos.copy(deco.startPos);
+        deco.currentPosition.copy(deco.startPos);
+
+        if (decoType === DecorationType.Text) {
+            if (!this.setupTextVisual(deco, event)) { deco.dispose(); return null; }
+        } else if (decoType === DecorationType.Object) {
+            if (!this.setupObjectVisual(deco, event)) { deco.dispose(); return null; }
+            deco.updateTransform();
         } else {
-            // Default: use position directly
-            decoration.startPos.set(rawPosition[0], rawPosition[1]);
-            decoration.currentPosition.copy(decoration.startPos);
-        }
-        
-        // Load texture
-        let textureAvailable = false;
-        
-        if (config.decorationImage) {
-            textureAvailable = this.loadDecorationTexture(config.decorationImage, decoration);
-            if (!textureAvailable) {
-                // Texture not found, do not create decoration to save performance
-                console.log(`[DecorationManager] Skipping decoration '${config.id}': texture '${config.decorationImage}' not found`);
-                decoration.dispose();
-                return null;
-            }
-        } else {
-            // 没有指定图像 - 不创建装饰物以节省性能
-            console.log(`[DecorationManager] Skipping decoration '${config.id}': no image specified`);
-            decoration.dispose();
-            return null;
+            if (!config.decorationImage) { deco.dispose(); return null; }
+            if (!this.loadDecoTexture(config.decorationImage, deco)) { deco.dispose(); return null; }
         }
 
-        // Register decoration
-        this.decorations.set(config.id!, decoration);
-        this.container.add(decoration.container);
-        
-        // Index by tag
-        if (config.tag) {
-            const tags = config.tag.split(' ').filter((t: string) => t.length > 0);
-            tags.forEach((tag: string) => {
-                if (!this.taggedDecorations.has(tag)) {
-                    this.taggedDecorations.set(tag, []);
-                }
-                this.taggedDecorations.get(tag)!.push(decoration);
-            });
-        }
-        
-        // Index by floor
-        if (config.floor !== undefined) {
-            if (!this.floorDecorations.has(config.floor)) {
-                this.floorDecorations.set(config.floor, []);
-            }
-            this.floorDecorations.get(config.floor)!.push(decoration);
-        }
-        
-        // Set initial visibility
-        decoration.container.visible = config.visible ?? true;
-        
-        return decoration;
+        this.registerDecoration(deco);
+        return deco;
     }
-    
-    /**
-     * Create a text decoration from AddText event
-     */
-    private createTextDecoration(event: any, index: number): Decoration | null {
-        // Text decorations are similar but use text rendering
-        // For now, create a basic decoration with text as placeholder
-        const config: Partial<DecorationConfig> = {
-            id: `text_${index}`,
-            tag: event.tag || '',
-            decorationImage: '',
-            position: this.parseVector2(event.position, [0, 0]),
-            positionOffset: this.parseVector2(event.positionOffset, [0, 0]),
-            relativeTo: this.parsePlacementType(event.relativeTo),
-            rotation: event.rotation || 0,
-            rotationOffset: event.rotationOffset || 0,
-            scale: this.parseVector2(event.scale, [100, 100]),
-            parallax: this.parseVector2(event.parallax, [100, 100]),
-            parallaxOffset: this.parseVector2(event.parallaxOffset, [0, 0]),
-            depth: event.depth || 0,
-            color: event.color || 'ffffff',
-            opacity: event.opacity !== undefined ? event.opacity : 100,
-            visible: event.visible !== undefined ? event.visible : true,
-            floor: event.floor
-        };
-        
-        const decoration = new Decoration(config);
-        
-        // Create text placeholder (in real implementation, would use TextGeometry or canvas texture)
+
+    private setupTextVisual(deco: DecorationInstance, event: any): boolean {
         const canvas = document.createElement('canvas');
-        canvas.width = 512;
-        canvas.height = 128;
+        canvas.width = 1024; canvas.height = 256;
         const ctx = canvas.getContext('2d')!;
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 32px Arial';
+        ctx.clearRect(0, 0, 1024, 256);
+        const [textColor] = parseDecoColor(event.color, 'ffffff');
+        ctx.fillStyle = textColor;
+        ctx.font = `bold ${event.fontSize || 48}px ${event.font || 'Arial'}`;
         ctx.textAlign = 'center';
-        ctx.fillText(event.decText || 'Text', 256, 64);
-        
+        ctx.textBaseline = 'middle';
+        const text = event.decText || '';
+        const lines = text.split('\n');
+        const lineH = (event.fontSize || 48) * 1.3;
+        const startY = 128 - (lines.length - 1) * lineH / 2;
+        lines.forEach((l: string, i: number) => {
+            ctx.fillText(l, 512, startY + i * lineH);
+        });
         const texture = new THREE.CanvasTexture(canvas);
-        decoration.setupVisual(texture);
-        
-        // Register
-        this.decorations.set(config.id!, decoration);
-        this.container.add(decoration.container);
-        
-        if (config.tag) {
-            const tags = config.tag.split(' ').filter((t: string) => t.length > 0);
-            tags.forEach((tag: string) => {
-                if (!this.taggedDecorations.has(tag)) {
-                    this.taggedDecorations.set(tag, []);
-                }
-                this.taggedDecorations.get(tag)!.push(decoration);
-            });
-        }
-        
-        return decoration;
+        deco.setupVisual(texture);
+        return true;
     }
-    
-    /**
-     * Load decoration texture (uses preloaded textures)
-     * Returns true if texture is available (loaded or loading), false if not found
-     */
-    private loadDecorationTexture(filename: string, decoration: Decoration): boolean {
-        // Check texture cache first (should be preloaded)
-        let cachedTexture = this.textureCache.get(filename);
-        if (cachedTexture) {
-            decoration.setupVisual(cachedTexture);
+
+    private setupObjectVisual(deco: DecorationInstance, event: any): boolean {
+        const g = new THREE.Group();
+        const objType = event.objectType || 'Planet';
+        if (objType === 'Planet') {
+            const [pColor, pAlpha] = parseDecoColor(event.planetColor, 'ffffff');
+            const mat = new THREE.MeshBasicMaterial({ color: new THREE.Color(pColor), transparent: true, opacity: pAlpha });
+            const sphere = new THREE.Mesh(new THREE.CircleGeometry(0.4, 32), mat);
+            g.add(sphere);
+            if (event.planetTailColor) {
+                const [tColor, tAlpha] = parseDecoColor(event.planetTailColor, 'ffffff');
+                const tailMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(tColor), transparent: true, opacity: tAlpha * 0.5 });
+                const tail = new THREE.Mesh(new THREE.RingGeometry(0.35, 0.5, 32), tailMat);
+                g.add(tail);
+            }
+        } else if (objType === 'Floor') {
+            const trackAngle = event.trackAngle ?? 0;
+            // Official ADOFAI: angle0 = -180 (fixed), angle1 = 180 - trackAngle
+            // trackAngle=90 → angle1=90 → 270° arc
+            // trackAngle=0 → angle1=180 → 360° arc
+            // trackAngle=360 → angle1=-180 → midspin degenerate
+            const angle0 = -180;
+            const angle1 = 180 - trackAngle;
+            const isMidspin = event.trackType === 'Midspin' || event.trackType === 'midspin';
+            const trackStyle = event.trackStyle || 'Standard';
+
+            // Use createTrackMesh to generate the proper tile mesh
+            const meshData = isMidspin
+                ? createTrackMesh(-180, 0, true, undefined, undefined, undefined, trackStyle)
+                : createTrackMesh(angle0, angle1, false, undefined, undefined, undefined, trackStyle);
+            if (meshData && meshData.faces && meshData.faces.length > 0) {
+                const geometry = new THREE.BufferGeometry();
+                geometry.setIndex(meshData.faces);
+                geometry.setAttribute('position', new THREE.Float32BufferAttribute(meshData.vertices, 3));
+                geometry.setAttribute('color', new THREE.Float32BufferAttribute([...meshData.colors], 3));
+                geometry.computeVertexNormals();
+
+                // Apply colors using mask-based approach (matching Player.ts)
+                const trackColor = event.trackColor;
+                const trackColor2 = event.trackColor2 || trackColor;
+                const trackOpacity = event.trackOpacity !== undefined ? event.trackOpacity / 100 : 1;
+
+                if (trackColor) {
+                    const [fillHex] = parseDecoColor(trackColor, 'ffffff');
+                    const [borderHex] = parseDecoColor(trackColor2, 'ffffff');
+                    const cFill = new THREE.Color(fillHex);
+                    const cBorder = new THREE.Color(borderHex);
+                    const colorAttr = geometry.getAttribute('color') as THREE.BufferAttribute;
+                    const colorArray = colorAttr.array as Float32Array;
+                    const maskArray = meshData.colors;
+
+                    // Same logic as Player.ts: mask < 0.5 → border, else → fill
+                    for (let i = 0; i < colorArray.length; i += 3) {
+                        if (maskArray[i] < 0.5) {
+                            colorArray[i] = cBorder.r;
+                            colorArray[i + 1] = cBorder.g;
+                            colorArray[i + 2] = cBorder.b;
+                        } else {
+                            colorArray[i] = cFill.r;
+                            colorArray[i + 1] = cFill.g;
+                            colorArray[i + 2] = cFill.b;
+                        }
+                    }
+                    colorAttr.needsUpdate = true;
+                }
+
+                const mat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: trackOpacity < 1, opacity: trackOpacity, side: THREE.DoubleSide });
+                const tileMesh = new THREE.Mesh(geometry, mat);
+                g.add(tileMesh);
+            }
+
+            // Track icon overlay (Twirl, SetSpeed, etc.)
+            const trackIcon = event.trackIcon;
+            if (trackIcon) {
+                const iconRadius = 0.11;
+                const iconGeom = new THREE.CircleGeometry(iconRadius, 16);
+                let iconColor = 0xffffff;
+                if (trackIcon === 'Twirl') iconColor = 0x800080;
+                else if (trackIcon === 'SetSpeed') {
+                    const currentBPM = this.tileBPM[event.floor ?? 0] || 100;
+                    const prevBPM = (event.floor ?? 0) > 0
+                        ? (this.tileBPM[(event.floor ?? 0) - 1] || 100)
+                        : (this.levelData.settings?.bpm || 100);
+                    iconColor = currentBPM > prevBPM ? 0xff0000 : 0x0000ff;
+                }
+                const iconMat = new THREE.MeshBasicMaterial({
+                    color: iconColor,
+                    transparent: true,
+                    opacity: trackOpacity,
+                });
+                const iconM = new THREE.Mesh(iconGeom, iconMat);
+                iconM.position.set(0, 0, 0.005);
+                g.add(iconM);
+                deco.iconMesh = iconM;
+            }
+        } else if (objType === 'PlayerBubble') {
+            const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.3 });
+            const bubble = new THREE.Mesh(new THREE.CircleGeometry(0.3, 16), mat);
+            g.add(bubble);
+        }
+        deco.objectGroup = g;
+        deco.container.add(g);
+        return true;
+    }
+
+    private loadDecoTexture(filename: string, deco: DecorationInstance): boolean {
+        const cached = this.textureCache.get(filename);
+        if (cached) { deco.setupVisual(cached); return true; }
+        const url = this.findImageUrl(filename);
+        if (url && !this.texturesLoading.has(filename)) {
+            this.texturesLoading.add(filename);
+            this.textureLoader.load(url, (tex) => {
+                tex.colorSpace = THREE.SRGBColorSpace;
+                this.textureCache.set(filename, tex);
+                this.texturesLoaded.add(filename);
+                this.texturesLoading.delete(filename);
+                deco.setupVisual(tex);
+            }, undefined, () => {
+                this.texturesLoading.delete(filename);
+            });
             return true;
         }
-
-        // Try to find matching custom image
-        const customUrl = this.findCustomImageUrl(filename);
-        if (customUrl && !this.texturesLoading.has(filename)) {
-            // Load now if not already loading
-            console.log(`[DecorationManager] Loading texture for '${filename}' on demand`);
-            this.loadTextureAsync(filename).then(() => {
-                const texture = this.textureCache.get(filename);
-                if (texture) {
-                    console.log(`[DecorationManager] Applying texture to decoration '${decoration.config.id}'`);
-                    decoration.setupVisual(texture);
-                } else {
-                    console.warn(`[DecorationManager] Texture load failed for '${filename}', disposing decoration`);
-                    decoration.dispose();
-                    this.decorations.delete(decoration.config.id!);
-                }
-            });
-            // Texture is loading, but we don't create decoration until it's loaded
-            // Return false to indicate texture is not yet available
-            return false;
-        }
-
-        // No image found at all, do not create decoration
-        console.log(`[DecorationManager] No texture found for '${filename}', skipping decoration`);
         return false;
-
-            }
-    
-    /**
-     * Get or create cached placeholder texture
-     */
-    private getPlaceholderTexture(): THREE.Texture {
-        if (!this.placeholderTexture) {
-            this.placeholderTexture = this.createPlaceholderTexture();
-        }
-        return this.placeholderTexture;
-    }
-    
-    /**
-     * Create a placeholder texture
-     */
-    private createPlaceholderTexture(): THREE.Texture {
-        const canvas = document.createElement('canvas');
-        canvas.width = 64;
-        canvas.height = 64;
-        const ctx = canvas.getContext('2d')!;
-        
-        // Checkerboard pattern
-        const size = 8;
-        for (let y = 0; y < 64; y += size) {
-            for (let x = 0; x < 64; x += size) {
-                ctx.fillStyle = ((x + y) / size) % 2 === 0 ? '#ff00ff' : '#000000';
-                ctx.fillRect(x, y, size, size);
-            }
-        }
-        
-        const texture = new THREE.CanvasTexture(canvas);
-        return texture;
-    }
-    
-    /**
-     * Build decoration events timeline from actions
-     */
-    private buildDecorationEventsTimeline(): void {
-        this.decorationEventsTimeline = [];
-        
-        const actions = this.levelData.actions;
-        if (!actions || !Array.isArray(actions)) {
-            console.log('[DecorationManager] No actions found');
-            return;
-        }
-        
-        let moveDecCount = 0;
-        actions.forEach((action: any) => {
-            if (action.eventType === 'MoveDecorations') {
-                const floor = action.floor;
-                const startTime = this.tileStartTimes[floor] || 0;
-                const bpm = this.tileBPM[floor] || 100;
-                const secPerBeat = 60 / bpm;
-                
-                const angleOffset = action.angleOffset || 0;
-                const timeOffset = (angleOffset / 180) * secPerBeat;
-                const eventTime = startTime + timeOffset;
-                
-                this.decorationEventsTimeline.push({
-                    time: eventTime,
-                    event: action
-                });
-                moveDecCount++;
-            }
-        });
-        
-        console.log('[DecorationManager] Found MoveDecorations events:', moveDecCount);
-        
-        // Sort by time
-        this.decorationEventsTimeline.sort((a, b) => a.time - b.time);
-    }
-    
-    /**
-     * Register custom image URL
-     * Note: Call preloadTextures() after registering all images
-     */
-    public registerCustomImage(filename: string, url: string): void {
-        console.log('[DecorationManager] Registering custom image:', filename);
-        this.customImages.set(filename, url);
-        // Also store without path for flexible matching
-        const baseName = this.getBaseName(filename);
-        if (baseName !== filename) {
-            this.customImages.set(baseName, url);
-            console.log('[DecorationManager] Also registered as:', baseName);
-        }
-        // Clear any cached texture so it will be reloaded
-        const existingTexture = this.textureCache.get(filename);
-        if (existingTexture) {
-            existingTexture.dispose();
-            this.textureCache.delete(filename);
-        }
-        this.texturesLoaded.delete(filename);
     }
 
-    /**
-     * Get base name from filename (strip path)
-     */
-    private getBaseName(filename: string): string {
-        const parts = filename.split(/[/\\]/);
-        return parts[parts.length - 1];
-    }
-    
-    /**
-     * Try to find a matching custom image URL
-     */
-    private findCustomImageUrl(filename: string): string | undefined {
-        // Try exact match first
-        let url = this.customImages.get(filename);
-        if (url) return url;
-        
-        // Try base name match
-        const baseName = this.getBaseName(filename);
-        url = this.customImages.get(baseName);
-        if (url) return url;
-        
-        // Try to find any registered image that ends with this filename
-        for (const [key, value] of this.customImages.entries()) {
-            if (key.endsWith(filename) || filename.endsWith(key)) {
-                return value;
-            }
+    private findImageUrl(filename: string): string | undefined {
+        let u = this.customImages.get(filename);
+        if (u) return u;
+        const base = filename.split(/[/\\]/).pop()!;
+        u = this.customImages.get(base);
+        if (u) return u;
+        for (const [k, v] of this.customImages) {
+            if (k.endsWith(filename) || filename.endsWith(k)) return v;
         }
-        
         return undefined;
     }
-    
-    /**
-     * Get list of registered custom images
-     */
-    public getCustomImages(): string[] {
-        return Array.from(this.customImages.keys());
-    }
-    
-    /**
-     * Update all decorations
-     */
-    public update(
-        elapsedTime: number,
-        cameraPosition: THREE.Vector3,
-        cameraRotation: number,
-        cameraZoom: number
-    ): void {
-        // Cache time in seconds
-        const timeInSeconds = elapsedTime / 1000;
-        
-        // Process MoveDecorations events
-        this.processDecorationEvents(timeInSeconds);
-        
-        // Calculate visible bounds (with margin)
-        const viewRange = 20 / cameraZoom; // Approximate visible range
-        const margin = 5;
-        const minX = cameraPosition.x - viewRange - margin;
-        const maxX = cameraPosition.x + viewRange + margin;
-        const minY = cameraPosition.y - viewRange - margin;
-        const maxY = cameraPosition.y + viewRange + margin;
-        
-        // Update each decoration
-        this.decorations.forEach((decoration) => {
-            // Update animation (only if animating)
-            if (decoration.config.animating) {
-                decoration.updateAnimation(timeInSeconds);
+
+    private registerDecoration(deco: DecorationInstance): void {
+        this.decorations.set(deco.config.id!, deco);
+        this.container.add(deco.container);
+        if (deco.config.tag) {
+            const tags = deco.config.tag.split(/\s+/).filter(Boolean);
+            for (const t of tags) {
+                if (!this.taggedDecorations.has(t)) this.taggedDecorations.set(t, []);
+                this.taggedDecorations.get(t)!.push(deco);
             }
-            
-            // Update position with parallax
-            decoration.updatePosition(
-                cameraPosition,
-                cameraRotation,
-                cameraZoom,
-                0
-            );
-            
-            // Frustum culling - hide decorations outside visible area
-            const pos = decoration.container.position;
-            const isVisible = pos.x >= minX && pos.x <= maxX && pos.y >= minY && pos.y <= maxY;
-            
-            // Only update visibility if changed
-            if (decoration.container.visible !== isVisible && decoration.config.visible) {
-                decoration.container.visible = isVisible;
+        }
+        deco.container.visible = deco.config.visible ?? true;
+    }
+
+    private buildDecorationEventsTimeline(): void {
+        this.decorationEventsTimeline = [];
+        const actions = this.levelData.actions || [];
+
+        // Collect all decoration events grouped by floor (matching CameraController.buildCameraTimeline)
+        const byFloor = new Map<number, any[]>();
+        for (const action of actions) {
+            if (action.eventType === 'MoveDecorations' || action.eventType === 'SetText' || action.eventType === 'SetObject') {
+                const floor = action.floor ?? 0;
+                if (!byFloor.has(floor)) byFloor.set(floor, []);
+                byFloor.get(floor)!.push(action);
+            }
+        }
+
+        const entries: { time: number; event: any }[] = [];
+
+        byFloor.forEach((events, floor) => {
+            const startTime = this.tileStartTimes[floor] || 0;
+            const bpm = this.tileBPM[floor] || 100;
+            const secPerBeat = 60 / bpm;
+
+            // Sort by event id for stable ordering within same floor
+            const sorted = [...events].sort((a, b) => (a.id ?? Infinity) - (b.id ?? Infinity));
+            const zeroOffsetEvents = sorted.filter(e => (e.angleOffset || 0) === 0);
+
+            sorted.forEach((event) => {
+                const ao = event.angleOffset || 0;
+                let offset = (ao / 180) * secPerBeat;
+                // Micro-offset for multiple zero-angleOffset events (matching camera)
+                if (ao === 0 && zeroOffsetEvents.length > 1) {
+                    const order = zeroOffsetEvents.findIndex(e => e.id === event.id);
+                    offset += order * 0.0001;
+                }
+                entries.push({ time: startTime + offset, event });
+            });
+        });
+
+        // Global sort by time, then by id for ties
+        entries.sort((a, b) => {
+            const dt = a.time - b.time;
+            return Math.abs(dt) < 0.0001
+                ? ((a.event.id ?? Infinity) - (b.event.id ?? Infinity))
+                : (dt > 0 ? 1 : -1);
+        });
+
+        this.decorationEventsTimeline = entries;
+    }
+
+    public registerCustomImage(filename: string, url: string): void {
+        this.customImages.set(filename, url);
+        const base = filename.split(/[/\\]/).pop()!;
+        if (base !== filename) this.customImages.set(base, url);
+        const existing = this.textureCache.get(filename);
+        if (existing) { existing.dispose(); this.textureCache.delete(filename); }
+        this.texturesLoaded.delete(filename);
+        this.retryPending();
+    }
+
+    private retryPending(): void {
+        const remaining: any[] = [];
+        for (const event of this.pendingDecorationEvents) {
+            const deco = this.createDecoration(event);
+            if (!deco) remaining.push(event);
+        }
+        this.pendingDecorationEvents = remaining;
+    }
+
+    public async preloadTextures(): Promise<number> {
+        const filenames = new Set<string>();
+        this.decorations.forEach(d => { if (d.config.decorationImage) filenames.add(d.config.decorationImage); });
+        this.pendingDecorationEvents.forEach((e: any) => { if (e.decorationImage) filenames.add(e.decorationImage); });
+        if (filenames.size === 0) return 0;
+        const promises: Promise<void>[] = [];
+        for (const fn of filenames) {
+            promises.push(new Promise((resolve) => {
+                if (this.textureCache.has(fn)) { resolve(); return; }
+                const url = this.findImageUrl(fn);
+                if (!url) { resolve(); return; }
+                this.texturesLoading.add(fn);
+                this.textureLoader.load(url, (tex) => {
+                    tex.colorSpace = THREE.SRGBColorSpace;
+                    this.textureCache.set(fn, tex);
+                    this.texturesLoaded.add(fn);
+                    this.texturesLoading.delete(fn);
+                    resolve();
+                }, undefined, () => { this.texturesLoading.delete(fn); resolve(); });
+            }));
+        }
+        await Promise.all(promises);
+        this.retryPending();
+        this.decorations.forEach(d => {
+            if (d.config.decorationImage) {
+                const tex = this.textureCache.get(d.config.decorationImage);
+                if (tex) { d.setupVisual(tex); }
             }
         });
+        return this.texturesLoaded.size;
     }
-    
-    /**
-     * Process MoveDecorations events
-     */
-    private processDecorationEvents(timeInSeconds: number): void {
-        // Check if we need to reset
+
+    public update(elapsedTime: number, cameraPosition: THREE.Vector3, cameraRotation: number, cameraZoom: number): void {
+        const now = elapsedTime / 1000;
+        this.processEvents(now);
+        const vr = 20 / cameraZoom + 5;
+        const minX = cameraPosition.x - vr, maxX = cameraPosition.x + vr;
+        const minY = cameraPosition.y - vr, maxY = cameraPosition.y + vr;
+        this.decorations.forEach(d => {
+            if (d.config.animating) d.updateAnimation(now);
+            d.updatePosition(cameraPosition, cameraRotation, cameraZoom);
+            const p = d.container.position;
+            const vis = p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY;
+            if (d.container.visible !== vis && d.config.visible) d.container.visible = vis;
+        });
+    }
+
+    private processEvents(now: number): void {
         if (this.lastDecorationEventIndex >= 0 && this.lastDecorationEventIndex < this.decorationEventsTimeline.length) {
-            const lastEvent = this.decorationEventsTimeline[this.lastDecorationEventIndex];
-            if (lastEvent && timeInSeconds < lastEvent.time) {
-                // Reset - we went back in time
-                this.resetDecorationAnimations();
+            const last = this.decorationEventsTimeline[this.lastDecorationEventIndex];
+            if (last && now < last.time) {
+                this.decorations.forEach(d => d.reset());
                 this.lastDecorationEventIndex = -1;
             }
         }
-        
-        // Process new events - with safety limit
-        let safetyCounter = 0;
-        const maxIterations = this.decorationEventsTimeline.length + 10;
-        
-        while (
-            safetyCounter < maxIterations &&
-            this.lastDecorationEventIndex + 1 < this.decorationEventsTimeline.length &&
-            this.decorationEventsTimeline[this.lastDecorationEventIndex + 1].time <= timeInSeconds
-        ) {
+        let safety = 0;
+        while (safety < (this.decorationEventsTimeline.length + 10) &&
+               this.lastDecorationEventIndex + 1 < this.decorationEventsTimeline.length &&
+               this.decorationEventsTimeline[this.lastDecorationEventIndex + 1].time <= now) {
             this.lastDecorationEventIndex++;
             const entry = this.decorationEventsTimeline[this.lastDecorationEventIndex];
-            if (entry) {
-                this.processMoveDecorationsEvent(entry.event, timeInSeconds);
-            }
-            safetyCounter++;
+            if (entry) this.processEvent(entry.event, now);
+            safety++;
         }
     }
-    
-    /**
-     * Process a single MoveDecorations event
-     */
-    private processMoveDecorationsEvent(event: any, currentTime: number): void {
-        const targetTag = event.tag || '';
-        if (!targetTag) return;
 
-        // Find decorations with matching tag
-        const tags = targetTag.split(' ').filter((t: string) => t.length > 0);
+    private processEvent(event: any, now: number): void {
+        if (event.active === false) return;
+        if (event.eventType === 'MoveDecorations') {
+            this.processMoveDecorations(event, now);
+        } else if (event.eventType === 'SetText') {
+            this.processSetText(event);
+        } else if (event.eventType === 'SetObject') {
+            this.processSetObject(event);
+        }
+    }
 
-        tags.forEach((tag: string) => {
-            const decorations = this.taggedDecorations.get(tag);
-            // 修复：装饰物查找失败处理 - 添加日志记录
-            if (!decorations) {
-                console.warn(`[DecorationManager] MoveDecorations: 未找到标签为 '${tag}' 的装饰物`);
-                return;
+    private processMoveDecorations(event: any, now: number): void {
+        const tagStr = event.tag || '';
+        if (!tagStr) return;
+        const tags = tagStr.split(/\s+/).filter(Boolean);
+        const floor = event.floor;
+        const bpm = this.tileBPM[floor] || 100;
+        const duration = (event.duration || 0) * 60 / bpm;
+        const movementType = this.parsePlacement(event.relativeTo);
+        const ts = this.tileSize;
+
+        for (const tag of tags) {
+            const list = this.taggedDecorations.get(tag);
+            if (!list) continue;
+            for (const deco of list) {
+                const target: Partial<DecorationConfig> = {};
+
+                if (event.positionOffset !== undefined && !event.disabled?.positionOffset) {
+                    const pos = this.parseVec2(event.positionOffset, [0, 0]);
+                    target.positionOffset = [pos[0] * ts, pos[1] * ts];
+                }
+                if (event.rotationOffset !== undefined && !event.disabled?.rotationOffset) {
+                    target.rotationOffset = event.rotationOffset;
+                }
+                if (event.scale !== undefined && !event.disabled?.scale) {
+                    const s = this.parseVec2(event.scale, [100, 100]);
+                    target.scale = [s[0], s[1]];
+                }
+                if (event.color !== undefined && !event.disabled?.color) {
+                    target.color = event.color;
+                }
+                if (event.opacity !== undefined && !event.disabled?.opacity) {
+                    target.opacity = event.opacity / 100;
+                }
+                if (event.parallax !== undefined && !event.disabled?.parallax) {
+                    const p = this.parseVec2(event.parallax, [100, 100]);
+                    target.parallax = [p[0] / 100, p[1] / 100];
+                }
+                if (event.parallaxOffset !== undefined && !event.disabled?.parallaxOffset) {
+                    const po = this.parseVec2(event.parallaxOffset, [0, 0]);
+                    target.parallaxOffset = [po[0] * ts, po[1] * ts];
+                }
+                if (event.pivotOffset !== undefined && !event.disabled?.pivotOffset) {
+                    const piv = this.parseVec2(event.pivotOffset, [0, 0]);
+                    target.pivotOffset = [piv[0] * ts, piv[1] * ts];
+                }
+                if (event.depth !== undefined && !event.disabled?.depth) {
+                    target.depth = event.depth;
+                }
+                if (event.visible !== undefined && !event.disabled?.visible) {
+                    target.visible = event.visible;
+                }
+                if (event.decorationImage !== undefined && !event.disabled?.decorationImage) {
+                    target.decorationImage = event.decorationImage;
+                }
+
+                deco.startAnimation(target, duration, event.ease || 'Linear', now, movementType);
             }
-
-            decorations.forEach((decoration) => {
-                // Calculate duration in seconds
-                const floor = event.floor;
-                const bpm = this.tileBPM[floor] || 100;
-                const secPerBeat = 60 / bpm;
-                const duration = (event.duration || 0) * secPerBeat;
-
-                // Build target values (match ADOFAI ffxMoveDecorationsPlus.cs)
-                const targetValues: Partial<DecorationConfig> = {};
-
-                if (event.positionOffset !== undefined) {
-                    const pos = this.parseVector2(event.positionOffset, [0, 0]);
-                    // ADOFAI: this.targetPos = tileSize * vector2
-                    targetValues.positionOffset = [pos[0] * this.tileSize, pos[1] * this.tileSize];
-                }
-
-                if (event.rotationOffset !== undefined) {
-                    targetValues.rotationOffset = event.rotationOffset;
-                }
-
-                if (event.scale !== undefined) {
-                    const scale = this.parseVector2(event.scale, [100, 100]);
-                    // ADOFAI: this.targetScaleV2 = (Vector2)evnt.data["scale"] / 100f
-                    targetValues.scale = [scale[0] / 100, scale[1] / 100];
-                }
-
-                if (event.color !== undefined) {
-                    targetValues.color = event.color;
-                }
-
-                if (event.opacity !== undefined) {
-                    // ADOFAI: this.targetOpacity = evnt.GetFloat("opacity") / 100f
-                    targetValues.opacity = event.opacity / 100;
-                }
-
-                if (event.parallax !== undefined) {
-                    const parallax = this.parseVector2(event.parallax, [100, 100]);
-                    // ADOFAI: dec.parallax.multiplier = this.targetParallax / 100f
-                    targetValues.parallax = [parallax[0] / 100, parallax[1] / 100];
-                }
-
-                if (event.parallaxOffset !== undefined) {
-                    const po = this.parseVector2(event.parallaxOffset, [0, 0]);
-                    // ADOFAI: this.targetParallaxOffset = tileSize * vector
-                    targetValues.parallaxOffset = [po[0] * this.tileSize, po[1] * this.tileSize];
-                }
-
-                if (event.pivotOffset !== undefined) {
-                    const piv = this.parseVector2(event.pivotOffset, [0, 0]);
-                    // ADOFAI: this.targetPivot = tileSize * vector3
-                    targetValues.pivotOffset = [piv[0] * this.tileSize, piv[1] * this.tileSize];
-                }
-
-                if (event.depth !== undefined) {
-                    targetValues.depth = event.depth;
-                }
-
-                if (event.visible !== undefined) {
-                    targetValues.visible = event.visible;
-                }
-
-                // Get placement type
-                const movementType = this.parsePlacementType(event.relativeTo);
-
-                // Start animation
-                decoration.startAnimation(
-                    targetValues,
-                    duration,
-                    event.ease || 'Linear',
-                    currentTime,
-                    movementType
-                );
-            });
-        });
+        }
     }
-    
-    /**
-     * Reset all decoration animations
-     */
-    private resetDecorationAnimations(): void {
-        this.decorations.forEach((decoration) => {
-            decoration.reset();
-        });
+
+    private processSetText(event: any): void {
+        const tags = (event.tag || '').split(/\s+/).filter(Boolean);
+        const text = event.decText || '';
+        for (const tag of tags) {
+            const list = this.taggedDecorations.get(tag);
+            if (!list) continue;
+            for (const deco of list) {
+                if (deco.config.decorationType !== DecorationType.Text) continue;
+                deco.config.decText = text;
+                this.setupTextVisual(deco, event);
+            }
+        }
     }
-    
-    /**
-     * Reset all decorations to initial state
-     */
+
+    private processSetObject(event: any): void {
+        const tags = (event.tag || '').split(/\s+/).filter(Boolean);
+        for (const tag of tags) {
+            const list = this.taggedDecorations.get(tag);
+            if (!list) continue;
+            for (const deco of list) {
+                if (deco.config.decorationType !== DecorationType.Object) continue;
+                if (deco.config.objectType === 'Planet') {
+                    if (event.planetColor !== undefined && !event.disabled?.planetColor) {
+                        const [hex, alpha] = parseDecoColor(event.planetColor, 'ffffff');
+                        deco.config.planetColor = event.planetColor;
+                        deco.currentColor.set(hex);
+                        deco.currentOpacity *= alpha;
+                    }
+                    if (event.planetTailColor !== undefined && !event.disabled?.planetTailColor) {
+                        deco.config.planetTailColor = event.planetTailColor;
+                    }
+                } else if (deco.config.objectType === 'Floor') {
+                    if (event.trackColor !== undefined && !event.disabled?.trackColor) {
+                        deco.config.trackColor = event.trackColor;
+                    }
+                    if (event.trackOpacity !== undefined && !event.disabled?.opacity) {
+                        deco.config.trackOpacity = event.trackOpacity;
+                        deco.currentOpacity = event.trackOpacity / 100;
+                    }
+                    if (event.trackIcon !== undefined && !event.disabled?.trackIcon) {
+                        deco.config.trackIcon = event.trackIcon;
+                        this.rebuildFloorIcon(deco);
+                    }
+                }
+                deco.updateTransform();
+            }
+        }
+    }
+
+    private rebuildFloorIcon(deco: DecorationInstance): void {
+        if (deco.iconMesh && deco.objectGroup) {
+            deco.objectGroup.remove(deco.iconMesh);
+            deco.iconMesh.geometry.dispose();
+            (deco.iconMesh.material as THREE.Material).dispose();
+            deco.iconMesh = null;
+        }
+        const trackIcon = deco.config.trackIcon;
+        if (!trackIcon || !deco.objectGroup) return;
+        const iconRadius = 0.11;
+        const iconGeom = new THREE.CircleGeometry(iconRadius, 16);
+        let iconColor = 0xffffff;
+        if (trackIcon === 'Twirl') iconColor = 0x800080;
+        else if (trackIcon === 'SetSpeed') {
+            const floor = deco.config.floor ?? 0;
+            const currentBPM = this.tileBPM[floor] || 100;
+            const prevBPM = floor > 0 ? (this.tileBPM[floor - 1] || 100) : (this.levelData.settings?.bpm || 100);
+            iconColor = currentBPM > prevBPM ? 0xff0000 : 0x0000ff;
+        }
+        const iconMat = new THREE.MeshBasicMaterial({ color: iconColor, transparent: true, opacity: deco.currentOpacity });
+        const iconM = new THREE.Mesh(iconGeom, iconMat);
+        iconM.position.set(0, 0, 0.005);
+        deco.objectGroup.add(iconM);
+        deco.iconMesh = iconM;
+    }
+
     public reset(): void {
-        this.decorations.forEach((decoration) => {
-            decoration.reset();
-        });
+        this.decorations.forEach(d => d.reset());
         this.lastDecorationEventIndex = -1;
     }
-    
-    /**
-     * Clear all decorations
-     */
+
     public clear(): void {
-        this.decorations.forEach((decoration) => {
-            decoration.dispose();
-            this.container.remove(decoration.container);
-        });
-        
+        this.decorations.forEach(d => { d.dispose(); this.container.remove(d.container); });
         this.decorations.clear();
         this.taggedDecorations.clear();
-        this.floorDecorations.clear();
         this.decorationEventsTimeline = [];
         this.lastDecorationEventIndex = -1;
     }
-    
-    /**
-     * Get decoration by tag
-     */
-    public getDecorationsByTag(tag: string): Decoration[] {
-        return this.taggedDecorations.get(tag) || [];
-    }
-    
-    /**
-     * Get decoration by ID
-     */
-    public getDecoration(id: string): Decoration | undefined {
-        return this.decorations.get(id);
-    }
-    
-    /**
-     * Parse vector2 value
-     */
-    private parseVector2(value: any, defaultValue: [number, number]): [number, number] {
-        if (!value) return defaultValue;
-        if (Array.isArray(value) && value.length >= 2) {
-            return [Number(value[0]), Number(value[1])];
-        }
-        return defaultValue;
-    }
-    
-    /**
-     * Parse placement type
-     */
-    private parsePlacementType(value: any): DecPlacementType {
-        if (!value) return DecPlacementType.Tile;
-        switch (value) {
-            case 'Tile':
-            case DecPlacementType.Tile:
-                return DecPlacementType.Tile;
-            case 'Camera':
-            case DecPlacementType.Camera:
-                return DecPlacementType.Camera;
-            case 'CameraAspect':
-            case DecPlacementType.CameraAspect:
-                return DecPlacementType.CameraAspect;
-            case 'LastPosition':
-            case DecPlacementType.LastPosition:
-                return DecPlacementType.LastPosition;
-            default:
-                return DecPlacementType.Tile;
-        }
-    }
-    
-    /**
-     * Dispose manager
-     */
+
     public dispose(): void {
         this.clear();
-        
-        // Dispose textures
-        this.textureCache.forEach((texture) => {
-            texture.dispose();
-        });
+        this.textureCache.forEach(t => t.dispose());
         this.textureCache.clear();
-        
-        // Dispose placeholder texture
-        if (this.placeholderTexture) {
-            this.placeholderTexture.dispose();
-            this.placeholderTexture = null;
-        }
-        
+        if (this.placeholderTexture) { this.placeholderTexture.dispose(); this.placeholderTexture = null; }
         this.scene.remove(this.container);
     }
-    
-    /**
-     * Set tile size for coordinate conversion
-     */
-    public setTileSize(size: number): void {
-        this.tileSize = size;
+
+    private parsePlacement(v: any): DecPlacementType {
+        if (!v) return DecPlacementType.Tile;
+        switch (v) {
+            case 'Camera': case DecPlacementType.Camera: return DecPlacementType.Camera;
+            case 'CameraAspect': case DecPlacementType.CameraAspect: return DecPlacementType.CameraAspect;
+            case 'LastPosition': case DecPlacementType.LastPosition: return DecPlacementType.LastPosition;
+            default: return DecPlacementType.Tile;
+        }
+    }
+
+    private parseVec2(v: any, def: [number, number]): [number, number] {
+        if (!v) return def;
+        if (Array.isArray(v) && v.length >= 2) return [Number(v[0]), Number(v[1])];
+        // Handle string vectors like "[1, 2]" or "(1, 2)"
+        if (typeof v === 'string') {
+            const m = v.match(/-?\d+\.?\d*/g);
+            if (m && m.length >= 2) return [parseFloat(m[0]), parseFloat(m[1])];
+        }
+        return def;
     }
 }
-
-export default DecorationManager;

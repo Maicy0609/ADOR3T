@@ -29,6 +29,9 @@ pnpm-lock.yaml
 yarn.lock
 bun.lock
 
+# ADOFAI level data
+.adofai/
+
 # Android build artifacts
 platform/android/.gradle/
 platform/android/local.properties

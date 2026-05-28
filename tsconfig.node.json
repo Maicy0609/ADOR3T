@@ -10,5 +10,5 @@
         "vite.config.ts",
         "no-attr.ts",
         "vite-plugin-wasm-inline.ts"
-    ]
+    ],
 }

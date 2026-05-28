@@ -5,6 +5,7 @@ import legacy from '@vitejs/plugin-legacy'
 import glsl from 'vite-plugin-glsl'
 import htmlPostBuildPlugin from './no-attr'
 import { wasmInlinePlugin } from './vite-plugin-wasm-inline'
+import { logWsPlugin } from './vite-plugin-log-ws'
 
 const base = './'
 
@@ -15,6 +16,7 @@ export default defineConfig(({ mode, command }) => {
     wasmInlinePlugin(),
     glsl(),
     react(),
+    logWsPlugin(),
   ]
   if (isBuild) {
     plugins.push(legacy({

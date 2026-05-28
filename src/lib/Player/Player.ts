@@ -8,12 +8,14 @@ import { FlashEffect } from './FlashEffect';
 import createTrackMesh from '../Geo/mesh_reserve';
 import { EasingFunctions } from './Easing';
 import { HTMLAudioMusic, getSharedAudioContext } from './HTMLAudioMusic';
+import tileTextureUrl from '@/assets/texture.png';
 import { TileColorManager, isEventActive, TileColorConfig, parseHexAlpha } from './TileColorManager';
 import { CameraController, CameraTimelineEntry } from './CameraController';
 import { DecorationManager } from './DecorationManager';
 import { MoveTrackManager } from './MoveTrackManager';
 import { PositionTrackManager } from './PositionTrackManager';
 import { InstancedMeshManager } from './InstancedMeshManager';
+import { OverlayHUD } from './OverlayHUD';
 import Stats from 'three/examples/jsm/libs/stats.module.js';
 
 export class Player implements IPlayer {
@@ -81,6 +83,9 @@ export class Player implements IPlayer {
   private initialZoom: number = 0;
   
   private boundHandlers: { [key: string]: EventListenerOrEventListenerObject } = {};
+
+  // Overlay HUD (2D canvas, replaces DOM stats)
+  public overlayHUD: OverlayHUD | null = null;
 
   // Stats callback
   private onStatsUpdate: ((stats: { fps: number; time: number; tileIndex: number; tileBPM: number[]; tileStartTimes: number[]; totalTiles: number }) => void) | null = null;
@@ -162,7 +167,7 @@ export class Player implements IPlayer {
 
   // Video Background
   private videoElement: HTMLVideoElement | null = null;
-  private videoTexture: THREE.VideoTexture | null = null;
+  private videoTexture: THREE.Texture | null = null;
   private videoMesh: THREE.Mesh | null = null;
   private videoOffset: number = 0; // ms
 
@@ -247,6 +252,9 @@ export class Player implements IPlayer {
       (shapeKey: string) => this.generateGeometryFromShapeKey(shapeKey),
       true // Enable instancing
     );
+
+    // Load tile texture overlay (used for Standard track style)
+    this.loadTileTexture();
     
     // Set background color from level settings
     const bgColor = this.levelData.settings?.backgroundColor || '000000';
@@ -963,6 +971,9 @@ export class Player implements IPlayer {
     // Append current renderer element
     this.container.appendChild(this.renderer.domElement);
     
+    // Create overlay HUD (2D canvas on top of WebGL)
+    this.overlayHUD = new OverlayHUD(container);
+    
     this.onWindowResize();
     
     this.updateVisibleTiles(); // Initial render of tiles
@@ -1223,6 +1234,19 @@ export class Player implements IPlayer {
         });
       }
       
+      // Overlay HUD update (2D canvas, no DOM layout)
+      if (this.overlayHUD) {
+        this.overlayHUD.update({
+          fps,
+          time: this.elapsedTime,
+          tileIndex: this.currentTileIndex,
+          tileBPM: this.tileBPM,
+          tileStartTimes: this.tileStartTimes,
+          totalTiles: this.levelData.tiles.length
+        });
+        this.overlayHUD.render();
+      }
+      
       try {
         this.stats?.end();
       } catch (e) {
@@ -1387,8 +1411,15 @@ export class Player implements IPlayer {
   private updateDecorations(): void {
     if (!this.decorationManager) return;
 
+    const settings = this.levelData.settings;
+    const initialBPM = settings.bpm || 100;
+    const initialSecPerBeat = 60 / initialBPM;
+    const countdownTicks = settings.countdownTicks || 4;
+    const countdownDuration = countdownTicks * initialSecPerBeat;
+    const timeInLevelMs = this.elapsedTime - countdownDuration * 1000;
+
     this.decorationManager.update(
-      this.elapsedTime,
+      Math.max(0, timeInLevelMs),
       this.camera.position,
       this.camera.rotation.z,
       this.camera.zoom
@@ -2186,6 +2217,8 @@ export class Player implements IPlayer {
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height);
     
+    if (this.overlayHUD) this.overlayHUD.resize();
+    
     if (this.renderTarget) {
       this.renderTarget.setSize(width, height);
     }
@@ -2624,6 +2657,9 @@ export class Player implements IPlayer {
 
     // If using instancing, update the manager
     if (this.instancedMeshManager) {
+        // Compute texture seed: only Standard style gets the texture overlay
+        const texSeed = trackStyle === 'Standard' ? Math.random() * 10 + 1 : 0;
+
         this.instancedMeshManager.updateTile(
             index,
             shapeKey,
@@ -2633,7 +2669,8 @@ export class Player implements IPlayer {
             color,
             bgcolor,
             finalOpacity,
-            true // visible
+            true, // visible
+            texSeed
         );
         // Hide individual mesh's own geometry but allow its children (decorations) to be visible
         // We'll use a material with visible: false instead of mesh.visible = false
@@ -3006,7 +3043,20 @@ export class Player implements IPlayer {
     }
   }
 
-  public loadVideo(src: string): void {
+  private loadTileTexture(): void {
+    const loader = new THREE.TextureLoader();
+    const texture = loader.load(tileTextureUrl);
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.colorSpace = THREE.SRGBColorSpace;
+    if (this.instancedMeshManager) {
+      this.instancedMeshManager.setTileTexture(texture, 0.6);
+    }
+  }
+
+  public loadVideo(src: string, quality: 'low' | 'medium' | 'high' = 'medium'): void {
     // Cleanup old video if exists
     if (this.videoElement) {
         this.videoElement.pause();
@@ -3034,10 +3084,21 @@ export class Player implements IPlayer {
     video.loop = this.levelData.settings?.loopVideo || false;
     video.muted = true;
     video.playsInline = true;
+    video.preload = 'auto';
 
     this.videoElement = video;
-    this.videoTexture = new THREE.VideoTexture(video);
-    this.videoTexture.colorSpace = THREE.SRGBColorSpace;
+
+    // Use THREE.VideoTexture directly bound to the <video> element.
+    // This eliminates the intermediate canvas + ctx.drawImage() CPU overhead,
+    // letting the GPU sample directly from decoded video frames (hardware-accelerated).
+    // The old canvas-downsampling approach caused stuttering because drawImage()
+    // with downscaling is a synchronous CPU-bound operation that blocks the main thread.
+    const videoTex = new THREE.VideoTexture(video);
+    videoTex.colorSpace = THREE.SRGBColorSpace;
+    videoTex.minFilter = THREE.LinearFilter;
+    videoTex.magFilter = THREE.LinearFilter;
+    videoTex.generateMipmaps = false;
+    this.videoTexture = videoTex;
 
     const geometry = new THREE.PlaneGeometry(1, 1);
     const material = new THREE.MeshBasicMaterial({
@@ -3265,6 +3326,11 @@ export class Player implements IPlayer {
       this.renderer = null as any;
     }
     
+    if (this.overlayHUD) {
+      this.overlayHUD.dispose();
+      this.overlayHUD = null;
+    }
+
     if (this.music) {
       this.music.dispose();
     }

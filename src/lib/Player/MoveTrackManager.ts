@@ -202,11 +202,20 @@ export class MoveTrackManager {
             const secPerBeat = 60 / bpm;
             const startTime = this.tileStartTimes[floor] || 0;
 
-            events.forEach(event => {
+            // Sort by id for stable ordering within same floor
+            const sorted = [...events].sort((a, b) => (a.id ?? Infinity) - (b.id ?? Infinity));
+            const zeroOffsetEvents = sorted.filter(e => (e.angleOffset || 0) === 0);
+
+            sorted.forEach(event => {
                 if (!this.isEventActive(event)) return;
                 const eventWithFloor = { ...event, floor };
                 const angleOffset = event.angleOffset || 0;
-                const timeOffset = (angleOffset / 180) * secPerBeat;
+                let timeOffset = (angleOffset / 180) * secPerBeat;
+                // Micro-offset for multiple zero-angleOffset events (matching camera)
+                if (angleOffset === 0 && zeroOffsetEvents.length > 1) {
+                    const order = zeroOffsetEvents.findIndex(e => e.id === event.id);
+                    timeOffset += order * 0.0001;
+                }
                 const eventTime = startTime + timeOffset;
                 const duration = (event.duration || 1) * secPerBeat;
 
@@ -217,7 +226,12 @@ export class MoveTrackManager {
             });
         });
 
-        entries.sort((a, b) => a.time - b.time);
+        entries.sort((a, b) => {
+            const dt = a.time - b.time;
+            return Math.abs(dt) < 0.0001
+                ? ((a.event.id ?? Infinity) - (b.event.id ?? Infinity))
+                : (dt > 0 ? 1 : -1);
+        });
         this.moveTrackEventsTimeline = entries;
         debugLog('[MoveTrackManager] Found MoveTrack events:', entries.length);
     }

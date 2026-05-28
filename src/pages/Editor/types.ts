@@ -17,8 +17,6 @@ export interface EditorState {
 // 编辑器 refs 接口
 export interface EditorRefs {
   containerRef: RefObject<HTMLDivElement>
-  fpsCounterRef: RefObject<HTMLDivElement>
-  infoRef: RefObject<HTMLDivElement>
   fileInputRef: RefObject<HTMLInputElement>
   audioInputRef: RefObject<HTMLInputElement>
   videoInputRef: RefObject<HTMLInputElement>

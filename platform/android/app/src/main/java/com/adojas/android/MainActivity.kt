@@ -260,7 +260,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadWebApp() {
-        webView.loadUrl("file:///android_asset/web/index.html")
+        webView.loadUrl("file:///android_asset/web/index.html#/editor")
     }
 
     override fun onBackPressed() {

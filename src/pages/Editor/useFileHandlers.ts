@@ -59,8 +59,6 @@ interface UseFileHandlersProps {
   settings: any
   t: (key: string) => string
   containerRef: React.RefObject<HTMLDivElement>
-  fpsCounterRef: React.RefObject<HTMLDivElement>
-  infoRef: React.RefObject<HTMLDivElement>
   previewerRef: React.MutableRefObject<Player | null>
 }
 
@@ -73,8 +71,6 @@ export function useFileHandlers({
   settings,
   t,
   containerRef,
-  fpsCounterRef,
-  infoRef,
   previewerRef
 }: UseFileHandlersProps) {
 

@@ -9,8 +9,7 @@ import { Player } from "@/lib/Player/Player"
 import { ILevelData } from "@/lib/Player/types"
 import example from "@/lib/example/line.json"
 import { useFileHandlers } from "./useFileHandlers"
-import { useGameMetrics } from "./useGameMetrics"
-import type { DisplayMetrics } from "./useGameMetrics"
+
 
 // 类型导入
 type ParseProgressEvent = Structure.ParseProgressEvent;
@@ -18,19 +17,6 @@ type ParseProgressEvent = Structure.ParseProgressEvent;
 // 使用 StringParser 作为解析器
 const StringParser = Parsers.StringParser
 const parser = new StringParser()
-
-/**
- * Render game metrics to HTML string for the info panel.
- * Only called when metrics data actually changes (see useGameMetrics).
- */
-function renderMetricsHTML(m: DisplayMetrics): string {
-  return [
-    `<div>TBPM | ${m.tbpm.toFixed(2)}</div>`,
-    `<div>CBPM | ${m.cbpm.toFixed(2)}</div>`,
-    `<div>Map Time | ${m.mapTime}</div>`,
-    `<div>Tiles | ${m.tiles}</div>`,
-  ].join("\n")
-}
 
 // 获取加载阶段的显示文本
 const getStageText = (stage: ParseProgressEvent['stage'], t: (key: string) => string): string => {
@@ -55,20 +41,12 @@ const getStageText = (stage: ParseProgressEvent['stage'], t: (key: string) => st
 export function useEditorState() {
   // Refs
   const containerRef = useRef<HTMLDivElement>(null)
-  const fpsCounterRef = useRef<HTMLDivElement>(null)
-  const infoRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const audioInputRef = useRef<HTMLInputElement>(null)
   const videoInputRef = useRef<HTMLInputElement>(null)
   const decorationInputRef = useRef<HTMLInputElement>(null)
   const bgImageInputRef = useRef<HTMLInputElement>(null)
   const previewerRef = useRef<Player | null>(null)
-
-  // Game metrics (TBPM, CBPM, Map Time, Tiles progress)
-  const { update: updateMetrics, reset: resetMetrics } = useGameMetrics()
-  const metricsRef = useRef<DisplayMetrics | null>(null)
-  // Cache last innerHTML to avoid redundant DOM writes
-  const lastMetricsHTMLRef = useRef<string>("")
   
   // State
   const [isLoading, setIsLoading] = useState<boolean>(false)
@@ -101,7 +79,7 @@ export function useEditorState() {
     }
 
     // Create new Player
-    if (containerRef.current && fpsCounterRef.current && infoRef.current) {
+    if (containerRef.current) {
       const player = new Player(loadedLevel as ILevelData)
       player.createPlayer(containerRef.current)
       player.setRenderer(settings.renderer)
@@ -111,30 +89,6 @@ export function useEditorState() {
       player.setTargetFramerate(settings.targetFramerate)
       player.setOGGCompression(settings.useOGGCompression)
       player.setStatsPanel(settings.showStats)
-      
-      // Only set stats callback if not using stats.js
-      if (!settings.showStats) {
-        player.setStatsCallback((stats) => {
-          if (fpsCounterRef.current) {
-            fpsCounterRef.current.textContent = `FPS  ${stats.fps.toFixed(2)}`
-          }
-          const metrics = updateMetrics({
-            tileIndex: stats.tileIndex,
-            elapsedTime: stats.time,
-            totalTiles: stats.totalTiles,
-            tileBPM: stats.tileBPM,
-            tileStartTimes: stats.tileStartTimes,
-          })
-          if (metrics && infoRef.current) {
-            metricsRef.current = metrics
-            const html = renderMetricsHTML(metrics)
-            if (html !== lastMetricsHTMLRef.current) {
-              lastMetricsHTMLRef.current = html
-              infoRef.current.innerHTML = html
-            }
-          }
-        })
-      }
       
       previewerRef.current = player
     }
@@ -150,8 +104,6 @@ export function useEditorState() {
     settings,
     t,
     containerRef,
-    fpsCounterRef,
-    infoRef,
     previewerRef
   })
 
@@ -255,30 +207,6 @@ export function useEditorState() {
       player.setTargetFramerate(settings.targetFramerate)
       player.setOGGCompression(settings.useOGGCompression)
       player.setStatsPanel(settings.showStats)
-
-      // Only set stats callback if not using stats.js
-      if (!settings.showStats) {
-        player.setStatsCallback((stats) => {
-          if (fpsCounterRef.current) {
-            fpsCounterRef.current.textContent = `FPS  ${stats.fps.toFixed(2)}`
-          }
-          const metrics = updateMetrics({
-            tileIndex: stats.tileIndex,
-            elapsedTime: stats.time,
-            totalTiles: stats.totalTiles,
-            tileBPM: stats.tileBPM,
-            tileStartTimes: stats.tileStartTimes,
-          })
-          if (metrics && infoRef.current) {
-            metricsRef.current = metrics
-            const html = renderMetricsHTML(metrics)
-            if (html !== lastMetricsHTMLRef.current) {
-              lastMetricsHTMLRef.current = html
-              infoRef.current.innerHTML = html
-            }
-          }
-        })
-      }
     }
   }, [
     settings.renderer,
@@ -287,7 +215,6 @@ export function useEditorState() {
     settings.hitsoundEnabled,
     settings.targetFramerate,
     settings.showStats,
-    updateMetrics,
   ])
 
   // 监听渲染器设置变化
@@ -372,7 +299,7 @@ export function useEditorState() {
             previewerRef.current = null
           }
 
-          if (containerRef.current && fpsCounterRef.current && infoRef.current) {
+          if (containerRef.current) {
             const player = new Player(loadedLevel as ILevelData)
             player.createPlayer(containerRef.current)
             player.setRenderer(settings.renderer)
@@ -384,30 +311,6 @@ export function useEditorState() {
             
             // Synthesize hitsounds
             await player.preSynthesizeHitsoundsWithProgress()
-            
-            // Only set stats callback if not using stats.js
-            if (!settings.showStats) {
-              player.setStatsCallback((stats) => {
-                if (fpsCounterRef.current) {
-                  fpsCounterRef.current.textContent = `FPS  ${stats.fps.toFixed(2)}`
-                }
-                const metrics = updateMetrics({
-                  tileIndex: stats.tileIndex,
-                  elapsedTime: stats.time,
-                  totalTiles: stats.totalTiles,
-                  tileBPM: stats.tileBPM,
-                  tileStartTimes: stats.tileStartTimes,
-                })
-                if (metrics && infoRef.current) {
-                  metricsRef.current = metrics
-                  const html = renderMetricsHTML(metrics)
-                  if (html !== lastMetricsHTMLRef.current) {
-                    lastMetricsHTMLRef.current = html
-                    infoRef.current.innerHTML = html
-                  }
-                }
-              })
-            }
             
             previewerRef.current = player
           }
@@ -463,8 +366,6 @@ export function useEditorState() {
   return {
     // Refs
     containerRef,
-    fpsCounterRef,
-    infoRef,
     fileInputRef,
     audioInputRef,
     videoInputRef,

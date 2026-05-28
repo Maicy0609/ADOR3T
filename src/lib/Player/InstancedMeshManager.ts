@@ -15,6 +15,7 @@ interface TileInstance {
     color: THREE.Color;
     bgColor: THREE.Color;
     opacity: number;
+    texSeed: number;
     visible: boolean;
 }
 
@@ -43,6 +44,24 @@ export class InstancedMeshManager {
     private onGeometryNeeded: (shapeKey: string) => THREE.BufferGeometry | null;
     private maxCacheSize: number = 100;
     private useInstancedMesh: boolean = true;
+    private tileTexture: THREE.Texture | null = null;
+    private texScale: number = 0.6;
+
+    /**
+     * Set the tile texture overlay and tiling scale
+     */
+    public setTileTexture(texture: THREE.Texture | null, scale: number = 6): void {
+        this.tileTexture = texture;
+        this.texScale = scale;
+        // Update uniform on all existing instanced meshes
+        for (const shapeData of this.instancedMeshes.values()) {
+            const mat = shapeData.instancedMesh.material as THREE.ShaderMaterial;
+            if (mat.uniforms) {
+                mat.uniforms.uTileTexture.value = texture;
+                mat.uniforms.uTexScale.value = scale;
+            }
+        }
+    }
 
     constructor(
         scene: THREE.Scene,
@@ -66,7 +85,10 @@ export class InstancedMeshManager {
 
         // Create a basic shader material that supports instance colors
         const material = new THREE.ShaderMaterial({
-            uniforms: {},
+            uniforms: {
+                uTileTexture: { value: this.tileTexture },
+                uTexScale: { value: this.texScale }
+            },
             vertexShader: instancedVert,
             fragmentShader: instancedFrag,
             vertexColors: true,
@@ -98,10 +120,15 @@ export class InstancedMeshManager {
             new Float32Array(maxInstances),
             1
         );
+        const iTexSeed = new THREE.InstancedBufferAttribute(
+            new Float32Array(maxInstances),
+            1
+        );
 
         instancedMesh.geometry.setAttribute('iColor', iColor);
         instancedMesh.geometry.setAttribute('iBgColor', iBgColor);
         instancedMesh.geometry.setAttribute('iOpacity', iOpacity);
+        instancedMesh.geometry.setAttribute('iTexSeed', iTexSeed);
 
         instancedMesh.instanceMatrix.needsUpdate = true;
 
@@ -135,7 +162,8 @@ export class InstancedMeshManager {
         color: string,
         bgColor: string,
         opacity: number = 1,
-        visible: boolean = true
+        visible: boolean = true,
+        texSeed: number = 0
     ): void {
         if (!this.useInstancedMesh) return;
 
@@ -165,6 +193,7 @@ export class InstancedMeshManager {
             color: new THREE.Color(color),
             bgColor: new THREE.Color(bgColor),
             opacity,
+            texSeed,
             visible
         };
 
@@ -221,15 +250,18 @@ export class InstancedMeshManager {
                 const iColor = instancedMesh.geometry.attributes.iColor! as THREE.InstancedBufferAttribute;
                 const iBgColor = instancedMesh.geometry.attributes.iBgColor! as THREE.InstancedBufferAttribute;
                 const iOpacity = instancedMesh.geometry.attributes.iOpacity! as THREE.InstancedBufferAttribute;
+                const iTexSeed = instancedMesh.geometry.attributes.iTexSeed! as THREE.InstancedBufferAttribute;
 
                 for (let i = count - 1; i >= insertAt; i--) {
                     iColor.setXYZ(i + 1, iColor.getX(i), iColor.getY(i), iColor.getZ(i));
                     iBgColor.setXYZ(i + 1, iBgColor.getX(i), iBgColor.getY(i), iBgColor.getZ(i));
                     iOpacity.setX(i + 1, iOpacity.getX(i));
+                    iTexSeed.setX(i + 1, iTexSeed.getX(i));
                 }
                 iColor.needsUpdate = true;
                 iBgColor.needsUpdate = true;
                 iOpacity.needsUpdate = true;
+                iTexSeed.needsUpdate = true;
                 instancedMesh.instanceMatrix.needsUpdate = true;
 
                 // Update tileIndex→instanceIndex mapping for shifted instances only
@@ -286,11 +318,13 @@ export class InstancedMeshManager {
             bgColor3.b
         );
         instancedMesh.geometry.attributes.iOpacity!.setX(instanceIndex, opacity);
+        instancedMesh.geometry.attributes.iTexSeed!.setX(instanceIndex, texSeed);
 
         instancedMesh.instanceMatrix.needsUpdate = true;
         instancedMesh.geometry.attributes.iColor!.needsUpdate = true;
         instancedMesh.geometry.attributes.iBgColor!.needsUpdate = true;
         instancedMesh.geometry.attributes.iOpacity!.needsUpdate = true;
+        instancedMesh.geometry.attributes.iTexSeed!.needsUpdate = true;
     }
 
     /**
@@ -437,6 +471,10 @@ export class InstancedMeshManager {
             new Float32Array(newMax),
             1
         );
+        const iTexSeed = new THREE.InstancedBufferAttribute(
+            new Float32Array(newMax),
+            1
+        );
 
         // Copy old data
         for (let i = 0; i < oldMax; i++) {
@@ -457,11 +495,15 @@ export class InstancedMeshManager {
             iOpacity.setX(i,
                 oldMesh.geometry.attributes.iOpacity!.getX(i)
             );
+            iTexSeed.setX(i,
+                oldMesh.geometry.attributes.iTexSeed!.getX(i)
+            );
         }
 
         newMesh.geometry.setAttribute('iColor', iColor);
         newMesh.geometry.setAttribute('iBgColor', iBgColor);
         newMesh.geometry.setAttribute('iOpacity', iOpacity);
+        newMesh.geometry.setAttribute('iTexSeed', iTexSeed);
 
         // Replace old mesh
         this.scene.remove(oldMesh);
@@ -544,6 +586,9 @@ export class InstancedMeshManager {
                     );
                     instancedMesh.geometry.attributes.iColor!.needsUpdate = true;
                     instancedMesh.geometry.attributes.iBgColor!.needsUpdate = true;
+
+                    instancedMesh.geometry.attributes.iTexSeed!.setX(instanceIndex, instance.texSeed);
+                    instancedMesh.geometry.attributes.iTexSeed!.needsUpdate = true;
                 } else {
                     // When hiding, also set opacity to 0 for extra safety
                     instancedMesh.geometry.attributes.iOpacity!.setX(instanceIndex, 0);
