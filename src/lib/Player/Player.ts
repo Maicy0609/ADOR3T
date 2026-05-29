@@ -2680,7 +2680,7 @@ export class Player implements IPlayer {
         tileMesh.add(sprite);
     } else if (hasTwirl) {
         const tileAngle = this.levelData.tiles?.[index]?.angle ?? 180;
-        const dir = this.tileIsCW[index] ? -1 : 1;
+        const dir = this.tileIsCW[index] ? 1 : -1;
         const texType = getTwirlTexture(tileAngle, dir);
         const tex = getIconTexture(texType);
         const sprite = createIconSprite(tex, initialOpacity, 0.44);
