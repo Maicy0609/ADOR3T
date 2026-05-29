@@ -36,13 +36,13 @@ export default defineConfig(({ mode, command }) => {
     base: base,
     worker: {
       format: 'es',
-      inline: 'no-fallback', // 将 worker 代码内联到主 bundle 中，支持静态页面部署
     },
     build: {
       outDir: "dist",
       assetsDir: "assets",
       sourcemap: false,
-      chunkSizeWarningLimit: 1000,
+      minify: 'oxc',
+      chunkSizeWarningLimit: 2000,
       rollupOptions: {
         output: {
           manualChunks: (id) => {
@@ -79,6 +79,34 @@ export default defineConfig(({ mode, command }) => {
               id.includes('node_modules/tailwind-merge/') ||
               id.includes('node_modules/class-variance-authority/')) {
               return 'vendor-utils'
+            }
+            // Other dependencies not matched above (jszip, stats.js, notyf, etc.)
+            if (id.includes('node_modules/')) {
+              return 'vendor-other'
+            }
+            // App: Player rendering engine
+            if (id.includes('/src/lib/Player/')) {
+              return 'app-player'
+            }
+            // App: geometry/mesh
+            if (id.includes('/src/lib/Geo/')) {
+              return 'app-geo'
+            }
+            // App: shaders
+            if (id.includes('/src/lib/shaders/')) {
+              return 'app-shaders'
+            }
+            // App: control
+            if (id.includes('/src/control/')) {
+              return 'app-control'
+            }
+            // App: Editor page
+            if (id.includes('/src/pages/Editor/')) {
+              return 'app-editor'
+            }
+            // App: other pages
+            if (id.includes('/src/pages/')) {
+              return 'app-pages'
             }
           },
         },
