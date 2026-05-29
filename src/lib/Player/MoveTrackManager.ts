@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { getEasingFunction } from './WasmEasing';
 import { debugLog } from './DebugLog';
+import { isEventActive, isFieldEnabled } from './EventUtils';
 
 interface AnimationProperty {
     property: string;
@@ -207,7 +208,7 @@ export class MoveTrackManager {
             const zeroOffsetEvents = sorted.filter(e => (e.angleOffset || 0) === 0);
 
             sorted.forEach(event => {
-                if (!this.isEventActive(event)) return;
+                if (!isEventActive(event)) return;
                 const eventWithFloor = { ...event, floor };
                 const angleOffset = event.angleOffset || 0;
                 let timeOffset = (angleOffset / 180) * secPerBeat;
@@ -234,12 +235,6 @@ export class MoveTrackManager {
         });
         this.moveTrackEventsTimeline = entries;
         debugLog('[MoveTrackManager] Found MoveTrack events:', entries.length);
-    }
-
-    private isEventActive(event: any): boolean {
-        if (event.active === false) return false;
-        if (event.editorOnly === true) return false;
-        return true;
     }
 
     public update(elapsedTimeMs: number): void {
@@ -383,15 +378,14 @@ export class MoveTrackManager {
 
         const duration = event.duration || 1;
         const ease = event.ease || 'Linear.easeNone';
-        const positionOffset = event.positionOffset || [0, 0];
-        const rotationOffset = event.rotationOffset || 0;
-        const scale = event.scale || [100, 100];
-        const opacity = event.opacity != null ? event.opacity / 100 : 1;
-
-        const positionUsed = event.positionOffset !== undefined;
-        const rotationUsed = event.rotationOffset !== undefined;
-        const scaleUsed = event.scale !== undefined;
-        const opacityUsed = event.opacity != null;
+        const positionUsed = event.positionOffset !== undefined && isFieldEnabled(event, 'positionOffset');
+        const rotationUsed = event.rotationOffset !== undefined && isFieldEnabled(event, 'rotationOffset');
+        const scaleUsed = event.scale !== undefined && isFieldEnabled(event, 'scale');
+        const opacityUsed = event.opacity != null && isFieldEnabled(event, 'opacity');
+        const positionOffset = positionUsed ? (event.positionOffset || [0, 0]) : [0, 0];
+        const rotationOffset = rotationUsed ? (event.rotationOffset || 0) : 0;
+        const scale = scaleUsed ? (event.scale || [100, 100]) : [100, 100];
+        const opacity = opacityUsed ? event.opacity / 100 : 1;
 
         const easingFunc = this.getEasingFunction(ease);
 
@@ -594,15 +588,14 @@ export class MoveTrackManager {
         const end = Math.max(startTile, endTile);
         const gapLength = event.gapLength || 0;
 
-        const positionOffset = event.positionOffset || [0, 0];
-        const rotationOffset = event.rotationOffset || 0;
-        const scale = event.scale || [100, 100];
-        const opacity = event.opacity != null ? event.opacity / 100 : 1;
-
-        const positionUsed = event.positionOffset !== undefined;
-        const rotationUsed = event.rotationOffset !== undefined;
-        const scaleUsed = event.scale !== undefined;
-        const opacityUsed = event.opacity != null;
+        const positionUsed = event.positionOffset !== undefined && isFieldEnabled(event, 'positionOffset');
+        const rotationUsed = event.rotationOffset !== undefined && isFieldEnabled(event, 'rotationOffset');
+        const scaleUsed = event.scale !== undefined && isFieldEnabled(event, 'scale');
+        const opacityUsed = event.opacity != null && isFieldEnabled(event, 'opacity');
+        const positionOffset = positionUsed ? (event.positionOffset || [0, 0]) : [0, 0];
+        const rotationOffset = rotationUsed ? (event.rotationOffset || 0) : 0;
+        const scale = scaleUsed ? (event.scale || [100, 100]) : [100, 100];
+        const opacity = opacityUsed ? event.opacity / 100 : 1;
 
         for (let i = start; i <= end; i += 1 + gapLength) {
             const tileId = i.toString();

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { EasingFunctions } from './Easing';
 import createTrackMesh, { MeshData } from '../Geo/mesh_reserve';
+import { isEventActive } from './EventUtils';
 
 /**
  * Parse ADOFAI hex color which may be #RRGGBBAA (8-digit with alpha).
@@ -399,8 +400,7 @@ export class DecorationManager {
     }
 
     private tryCreateDecoration(event: any): DecorationInstance | null {
-        if (event.active === false) return null;
-        if (event.editorOnly === true) return null;
+        if (!isEventActive(event)) return null;
         const deco = this.createDecoration(event);
         if (!deco) this.pendingDecorationEvents.push(event);
         return deco;
@@ -420,8 +420,7 @@ export class DecorationManager {
     }
 
     private createDecoration(event: any): DecorationInstance | null {
-        if (event.active === false) return null;
-        if (event.editorOnly === true) return null;
+        if (!isEventActive(event)) return null;
 
         const relativeTo = this.parsePlacement(event.relativeTo);
         const rawPos = this.parseVec2(event.position, [0, 0]);
@@ -786,7 +785,7 @@ export class DecorationManager {
     }
 
     private processEvent(event: any, now: number): void {
-        if (event.active === false) return;
+        if (!isEventActive(event)) return;
         if (event.eventType === 'MoveDecorations') {
             this.processMoveDecorations(event, now);
         } else if (event.eventType === 'SetText') {

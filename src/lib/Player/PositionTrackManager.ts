@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { isEventActive } from './EventUtils';
 
 export interface PositionTrackEvent {
     positionOffset?: [number, number] | { x: number; y: number };
@@ -83,7 +84,7 @@ export class PositionTrackManager {
         if (!this.levelData.actions) return;
         for (const action of this.levelData.actions) {
             if (action.eventType !== 'PositionTrack') continue;
-            if (action.active === false) continue;
+            if (!isEventActive(action)) continue;
             const floor = action.floor;
             if (!this.positionTrackEvents.has(floor)) {
                 this.positionTrackEvents.set(floor, []);

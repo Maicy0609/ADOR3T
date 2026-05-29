@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { EasingFunctions } from './Easing';
-import { isEventActive } from './TileColorManager';
+import { isEventActive, isFieldEnabled } from './EventUtils';
 
 // ──── 类型定义 ──────────────────────────────────────────────────────────────
 
@@ -249,20 +249,19 @@ export class CameraController {
         const rawPos = event.position;
         const posHasX = Array.isArray(rawPos) && rawPos[0] !== null && rawPos[0] !== undefined;
         const posHasY = Array.isArray(rawPos) && rawPos[1] !== null && rawPos[1] !== undefined;
-        // 只要有 position 字段（含 [null,null]）就算 used，匹配 !evnt.disabled["position"]
-        const positionUsed = Array.isArray(rawPos);
+        const positionUsed = Array.isArray(rawPos) && isFieldEnabled(event, 'position');
         const targetPos = { x: posHasX ? rawPos[0] * TILE_SIZE : 0, y: posHasY ? rawPos[1] * TILE_SIZE : 0 };
 
-        const rotationUsed = event.rotation !== undefined && event.rotation !== null;
+        const rotationUsed = event.rotation !== undefined && event.rotation !== null && isFieldEnabled(event, 'rotation');
         const targetRot = rotationUsed ? event.rotation : 0;
 
-        const zoomUsed = event.zoom !== undefined && event.zoom !== null;
+        const zoomUsed = event.zoom !== undefined && event.zoom !== null && isFieldEnabled(event, 'zoom');
         const targetZoom = zoomUsed ? event.zoom : 100;
 
         const rawMT = event.relativeTo;
         let movementType: CamMovementType | undefined;
         let movementTypeUsed = false;
-        if (rawMT !== undefined && rawMT !== null) {
+        if (rawMT !== undefined && rawMT !== null && isFieldEnabled(event, 'relativeTo')) {
             movementTypeUsed = true;
             movementType = parseMovementType(rawMT);
         }
