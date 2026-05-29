@@ -7,6 +7,30 @@ import createTrackMesh, { MeshData } from '../Geo/mesh_reserve';
  * Returns [rgbString, alpha01] where rgbString is #RRGGBB and alpha01 is 0..1.
  * THREE.Color only accepts #RRGGBB, so alpha must be split out.
  */
+/**
+ * Map ADOFAI CustomFloorIcon enum to a display color for our circle-based icon.
+ * Colors approximate the game's icon conventions.
+ */
+function getFloorIconColor(trackIcon: string | undefined, trackRedSwirl?: boolean): number {
+    switch (trackIcon) {
+        case 'Swirl':      return trackRedSwirl ? 0xff0000 : 0x800080;
+        case 'Rabbit':
+        case 'DoubleRabbit': return 0xff0000;
+        case 'Snail':
+        case 'DoubleSnail':  return 0x0000ff;
+        case 'Checkpoint':   return 0x00cc00;
+        case 'HoldArrowShort':
+        case 'HoldArrowLong': return 0xffff00;
+        case 'HoldReleaseShort':
+        case 'HoldReleaseLong': return 0xff8800;
+        case 'MultiPlanetTwo':
+        case 'MultiPlanetThreeMore':
+        case 'MultiPlanetThreeLess': return 0x00ffff;
+        case 'Portal':      return 0xff00ff;
+        default:            return 0xffffff;
+    }
+}
+
 function parseDecoColor(hex: string | undefined, fallback: string = 'ffffff'): [string, number] {
     const raw = (hex || fallback).replace(/^#/, '');
     if (raw.length >= 8) {
@@ -557,20 +581,12 @@ export class DecorationManager {
                 g.add(tileMesh);
             }
 
-            // Track icon overlay (Twirl, SetSpeed, etc.)
+            // Track icon overlay matching ADOFAI CustomFloorIcon enum
             const trackIcon = event.trackIcon;
-            if (trackIcon === 'Twirl' || trackIcon === 'SetSpeed') {
+            if (trackIcon && trackIcon !== 'None') {
                 const iconRadius = 0.11;
                 const iconGeom = new THREE.CircleGeometry(iconRadius, 16);
-                let iconColor = 0xffffff;
-                if (trackIcon === 'Twirl') iconColor = 0x800080;
-                else if (trackIcon === 'SetSpeed') {
-                    const currentBPM = this.tileBPM[event.floor ?? 0] || 100;
-                    const prevBPM = (event.floor ?? 0) > 0
-                        ? (this.tileBPM[(event.floor ?? 0) - 1] || 100)
-                        : (this.levelData.settings?.bpm || 100);
-                    iconColor = currentBPM > prevBPM ? 0xff0000 : 0x0000ff;
-                }
+                const iconColor = getFloorIconColor(trackIcon, event.trackRedSwirl);
                 const iconMat = new THREE.MeshBasicMaterial({
                     color: iconColor,
                     transparent: true,
@@ -897,17 +913,10 @@ export class DecorationManager {
             deco.iconMesh = null;
         }
         const trackIcon = deco.config.trackIcon;
-        if ((trackIcon !== 'Twirl' && trackIcon !== 'SetSpeed') || !deco.objectGroup) return;
+        if (!trackIcon || trackIcon === 'None' || !deco.objectGroup) return;
         const iconRadius = 0.11;
         const iconGeom = new THREE.CircleGeometry(iconRadius, 16);
-        let iconColor = 0xffffff;
-        if (trackIcon === 'Twirl') iconColor = 0x800080;
-        else if (trackIcon === 'SetSpeed') {
-            const floor = deco.config.floor ?? 0;
-            const currentBPM = this.tileBPM[floor] || 100;
-            const prevBPM = floor > 0 ? (this.tileBPM[floor - 1] || 100) : (this.levelData.settings?.bpm || 100);
-            iconColor = currentBPM > prevBPM ? 0xff0000 : 0x0000ff;
-        }
+        const iconColor = getFloorIconColor(trackIcon, false);
         const iconMat = new THREE.MeshBasicMaterial({ color: iconColor, transparent: true, opacity: deco.currentOpacity });
         const iconM = new THREE.Mesh(iconGeom, iconMat);
         iconM.position.set(0, 0, 0.005);
