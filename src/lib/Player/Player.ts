@@ -2685,6 +2685,15 @@ export class Player implements IPlayer {
         const tex = getIconTexture(texType);
         const sprite = createIconSprite(tex, initialOpacity, 0.44);
         sprite.position.set(0, 0, decoZ);
+        const nextTile = this.levelData.tiles?.[index + 1];
+        if (nextTile) {
+            const pivot = this.levelData.tiles![index];
+            const exitAngle = Math.atan2(nextTile.position[1] - pivot.position[1], nextTile.position[0] - pivot.position[0]);
+            const r = dir === 1
+                ? exitAngle - Math.PI / 3
+                : exitAngle - Math.PI / 6;
+            (sprite.material as THREE.SpriteMaterial).rotation = r;
+        }
         tileMesh.add(sprite);
     } else if (hasSetSpeed) {
         const currentBPM = this.tileBPM[index];

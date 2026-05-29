@@ -565,6 +565,16 @@ export class DecorationManager {
                     const tex = getIconTexture(texType);
                     const sprite = createIconSprite(tex, trackOpacity, 0.44);
                     sprite.position.set(0, 0, 0.005);
+                    if (texType === 'TwirlB1') {
+                        const floorIdx = deco.config.floor;
+                        const tiles = this.levelData.tiles;
+                        if (floorIdx !== undefined && tiles && floorIdx < tiles.length - 1) {
+                            const p = tiles[floorIdx];
+                            const n = tiles[floorIdx + 1];
+                            const exitAngle = Math.atan2(n.position[1] - p.position[1], n.position[0] - p.position[0]);
+                            (sprite.material as THREE.SpriteMaterial).rotation = exitAngle - Math.PI / 3;
+                        }
+                    }
                     g.add(sprite);
                     deco.iconSprite = sprite;
                 }
@@ -890,6 +900,16 @@ export class DecorationManager {
             const tex = getIconTexture(texType);
             const sprite = createIconSprite(tex, deco.currentOpacity, 0.44);
             sprite.position.set(0, 0, 0.005);
+            if (texType === 'TwirlB1') {
+                const floorIdx = deco.config.floor;
+                const tiles = this.levelData.tiles;
+                if (floorIdx !== undefined && tiles && floorIdx < tiles.length - 1) {
+                    const p = tiles[floorIdx];
+                    const n = tiles[floorIdx + 1];
+                    const exitAngle = Math.atan2(n.position[1] - p.position[1], n.position[0] - p.position[0]);
+                    (sprite.material as THREE.SpriteMaterial).rotation = exitAngle - Math.PI / 3;
+                }
+            }
             deco.objectGroup.add(sprite);
             deco.iconSprite = sprite;
         }

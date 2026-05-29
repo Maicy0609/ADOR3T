@@ -78,7 +78,7 @@ export function createIconSprite(tex: THREE.Texture, opacity = 1, targetHeight =
     });
     const sprite = new THREE.Sprite(mat);
     const img = tex.image;
-    const aspect = img ? img.width / img.height : 1;
+    const aspect = (img && img.width > 0 && img.height > 0) ? img.width / img.height : 1;
     sprite.scale.set(targetHeight * aspect, targetHeight, 1);
     sprite.center.set(0.5, 0.5);
     return sprite;
