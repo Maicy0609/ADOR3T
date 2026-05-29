@@ -559,7 +559,7 @@ export class DecorationManager {
 
             // Track icon overlay (Twirl, SetSpeed, etc.)
             const trackIcon = event.trackIcon;
-            if (trackIcon) {
+            if (trackIcon === 'Twirl' || trackIcon === 'SetSpeed') {
                 const iconRadius = 0.11;
                 const iconGeom = new THREE.CircleGeometry(iconRadius, 16);
                 let iconColor = 0xffffff;
@@ -811,7 +811,7 @@ export class DecorationManager {
                     target.color = event.color;
                 }
                 if (event.opacity !== undefined && !event.disabled?.opacity) {
-                    target.opacity = event.opacity / 100;
+                    target.opacity = event.opacity;
                 }
                 if (event.parallax !== undefined && !event.disabled?.parallax) {
                     const p = this.parseVec2(event.parallax, [100, 100]);
@@ -897,7 +897,7 @@ export class DecorationManager {
             deco.iconMesh = null;
         }
         const trackIcon = deco.config.trackIcon;
-        if (!trackIcon || !deco.objectGroup) return;
+        if ((trackIcon !== 'Twirl' && trackIcon !== 'SetSpeed') || !deco.objectGroup) return;
         const iconRadius = 0.11;
         const iconGeom = new THREE.CircleGeometry(iconRadius, 16);
         let iconColor = 0xffffff;
