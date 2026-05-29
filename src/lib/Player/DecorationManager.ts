@@ -14,7 +14,7 @@ import { isEventActive } from './EventUtils';
  */
 function getFloorIconColor(trackIcon: string | undefined, trackRedSwirl?: boolean): number {
     switch (trackIcon) {
-        case 'Swirl':      return trackRedSwirl ? 0xff0000 : 0x800080;
+        case 'Swirl':      return 0x800080;
         case 'Rabbit':
         case 'DoubleRabbit': return 0xff0000;
         case 'Snail':
