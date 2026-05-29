@@ -2675,7 +2675,7 @@ export class Player implements IPlayer {
     const tileCount = this.levelData.tiles?.length ?? 0;
     if (index === tileCount - 1) {
         const tex = getIconTexture('End');
-        const sprite = createIconSprite(tex, initialOpacity, 0.18);
+        const sprite = createIconSprite(tex, initialOpacity, 0.36);
         sprite.position.set(0, 0, decoZ);
         tileMesh.add(sprite);
     } else if (hasTwirl) {
@@ -2683,7 +2683,7 @@ export class Player implements IPlayer {
         const dir = this.tileIsCW[index] ? -1 : 1;
         const texType = getTwirlTexture(tileAngle, dir);
         const tex = getIconTexture(texType);
-        const sprite = createIconSprite(tex, initialOpacity, 0.22);
+        const sprite = createIconSprite(tex, initialOpacity, 0.44);
         sprite.position.set(0, 0, decoZ);
         tileMesh.add(sprite);
     } else if (hasSetSpeed) {
@@ -2693,7 +2693,7 @@ export class Player implements IPlayer {
         if (ratio > 1.05 || ratio < 0.95) {
             const texType = getSetSpeedTexture(ratio);
             const tex = getIconTexture(texType);
-            const sprite = createIconSprite(tex, initialOpacity, 0.22);
+            const sprite = createIconSprite(tex, initialOpacity, 0.44);
             sprite.position.set(0, 0, decoZ);
             tileMesh.add(sprite);
         }

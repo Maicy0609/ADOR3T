@@ -563,7 +563,7 @@ export class DecorationManager {
                 const texType = getIconTextureForCustomFloor(trackIcon);
                 if (texType) {
                     const tex = getIconTexture(texType);
-                    const sprite = createIconSprite(tex, trackOpacity, 0.22);
+                    const sprite = createIconSprite(tex, trackOpacity, 0.44);
                     sprite.position.set(0, 0, 0.005);
                     g.add(sprite);
                     deco.iconSprite = sprite;
@@ -888,7 +888,7 @@ export class DecorationManager {
         const texType = getIconTextureForCustomFloor(trackIcon);
         if (texType) {
             const tex = getIconTexture(texType);
-            const sprite = createIconSprite(tex, deco.currentOpacity, 0.22);
+            const sprite = createIconSprite(tex, deco.currentOpacity, 0.44);
             sprite.position.set(0, 0, 0.005);
             deco.objectGroup.add(sprite);
             deco.iconSprite = sprite;
