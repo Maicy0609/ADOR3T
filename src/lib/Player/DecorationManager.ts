@@ -2,36 +2,13 @@ import * as THREE from 'three';
 import { EasingFunctions } from './Easing';
 import createTrackMesh, { MeshData } from '../Geo/mesh_reserve';
 import { isEventActive } from './EventUtils';
+import { getIconTexture, getIconTextureForCustomFloor, createIconSprite } from './IconLoader';
 
 /**
  * Parse ADOFAI hex color which may be #RRGGBBAA (8-digit with alpha).
  * Returns [rgbString, alpha01] where rgbString is #RRGGBB and alpha01 is 0..1.
  * THREE.Color only accepts #RRGGBB, so alpha must be split out.
  */
-/**
- * Map ADOFAI CustomFloorIcon enum to a display color for our circle-based icon.
- * Colors approximate the game's icon conventions.
- */
-function getFloorIconColor(trackIcon: string | undefined, trackRedSwirl?: boolean): number {
-    switch (trackIcon) {
-        case 'Swirl':      return 0x800080;
-        case 'Rabbit':
-        case 'DoubleRabbit': return 0xff0000;
-        case 'Snail':
-        case 'DoubleSnail':  return 0x0000ff;
-        case 'Checkpoint':   return 0x00cc00;
-        case 'HoldArrowShort':
-        case 'HoldArrowLong': return 0xffff00;
-        case 'HoldReleaseShort':
-        case 'HoldReleaseLong': return 0xff8800;
-        case 'MultiPlanetTwo':
-        case 'MultiPlanetThreeMore':
-        case 'MultiPlanetThreeLess': return 0x00ffff;
-        case 'Portal':      return 0xff00ff;
-        default:            return 0xffffff;
-    }
-}
-
 function parseDecoColor(hex: string | undefined, fallback: string = 'ffffff'): [string, number] {
     const raw = (hex || fallback).replace(/^#/, '');
     if (raw.length >= 8) {
@@ -129,7 +106,7 @@ class DecorationInstance {
     public mesh: THREE.Mesh | null = null;
     public sprite: THREE.Sprite | null = null;
     public objectGroup: THREE.Group | null = null;
-    public iconMesh: THREE.Mesh | null = null;
+    public iconSprite: THREE.Sprite | null = null;
     public startPos: THREE.Vector2 = new THREE.Vector2();
     public pivotPos: THREE.Vector2 = new THREE.Vector2();
     public currentPosition: THREE.Vector2 = new THREE.Vector2();
@@ -193,7 +170,7 @@ class DecorationInstance {
         if (this.mesh) { this.container.remove(this.mesh); this.mesh.geometry.dispose(); (this.mesh.material as THREE.Material).dispose(); this.mesh = null; }
         if (this.sprite) { this.container.remove(this.sprite); (this.sprite.material as THREE.Material).dispose(); this.sprite = null; }
         if (this.objectGroup) { this.container.remove(this.objectGroup); this.objectGroup = null; }
-        this.iconMesh = null;
+        if (this.iconSprite) { (this.iconSprite.material as THREE.Material).dispose(); this.iconSprite = null; }
     }
 
     public updateTransform(): void {
@@ -206,7 +183,7 @@ class DecorationInstance {
         this.container.position.set(this.currentPosition.x, this.currentPosition.y, z);
         if (this.mesh) { this.mesh.renderOrder = ro; (this.mesh.material as THREE.MeshBasicMaterial).color.copy(this.currentColor); (this.mesh.material as THREE.MeshBasicMaterial).opacity = this.currentOpacity; }
         if (this.sprite) { this.sprite.renderOrder = ro; (this.sprite.material as THREE.SpriteMaterial).opacity = this.currentOpacity; }
-        if (this.iconMesh) { this.iconMesh.renderOrder = ro + 1; (this.iconMesh.material as THREE.MeshBasicMaterial).opacity = this.currentOpacity; }
+        if (this.iconSprite) { this.iconSprite.renderOrder = ro + 1; (this.iconSprite.material as THREE.SpriteMaterial).opacity = this.currentOpacity; }
     }
 
     public updatePosition(camPos: THREE.Vector3, camRot: number, camZoom: number): void {
@@ -580,21 +557,17 @@ export class DecorationManager {
                 g.add(tileMesh);
             }
 
-            // Track icon overlay matching ADOFAI CustomFloorIcon enum
+            // Track icon overlay using PNG sprites (matching ADOFAI CustomFloorIcon)
             const trackIcon = event.trackIcon;
             if (trackIcon && trackIcon !== 'None') {
-                const iconRadius = 0.11;
-                const iconGeom = new THREE.CircleGeometry(iconRadius, 16);
-                const iconColor = getFloorIconColor(trackIcon, event.trackRedSwirl);
-                const iconMat = new THREE.MeshBasicMaterial({
-                    color: iconColor,
-                    transparent: true,
-                    opacity: trackOpacity,
-                });
-                const iconM = new THREE.Mesh(iconGeom, iconMat);
-                iconM.position.set(0, 0, 0.005);
-                g.add(iconM);
-                deco.iconMesh = iconM;
+                const texType = getIconTextureForCustomFloor(trackIcon);
+                if (texType) {
+                    const tex = getIconTexture(texType);
+                    const sprite = createIconSprite(tex, trackOpacity, 0.22);
+                    sprite.position.set(0, 0, 0.005);
+                    g.add(sprite);
+                    deco.iconSprite = sprite;
+                }
             }
         } else if (objType === 'PlayerBubble') {
             const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.3 });
@@ -905,22 +878,21 @@ export class DecorationManager {
     }
 
     private rebuildFloorIcon(deco: DecorationInstance): void {
-        if (deco.iconMesh && deco.objectGroup) {
-            deco.objectGroup.remove(deco.iconMesh);
-            deco.iconMesh.geometry.dispose();
-            (deco.iconMesh.material as THREE.Material).dispose();
-            deco.iconMesh = null;
+        if (deco.iconSprite && deco.objectGroup) {
+            deco.objectGroup.remove(deco.iconSprite);
+            (deco.iconSprite.material as THREE.Material).dispose();
+            deco.iconSprite = null;
         }
         const trackIcon = deco.config.trackIcon;
         if (!trackIcon || trackIcon === 'None' || !deco.objectGroup) return;
-        const iconRadius = 0.11;
-        const iconGeom = new THREE.CircleGeometry(iconRadius, 16);
-        const iconColor = getFloorIconColor(trackIcon, false);
-        const iconMat = new THREE.MeshBasicMaterial({ color: iconColor, transparent: true, opacity: deco.currentOpacity });
-        const iconM = new THREE.Mesh(iconGeom, iconMat);
-        iconM.position.set(0, 0, 0.005);
-        deco.objectGroup.add(iconM);
-        deco.iconMesh = iconM;
+        const texType = getIconTextureForCustomFloor(trackIcon);
+        if (texType) {
+            const tex = getIconTexture(texType);
+            const sprite = createIconSprite(tex, deco.currentOpacity, 0.22);
+            sprite.position.set(0, 0, 0.005);
+            deco.objectGroup.add(sprite);
+            deco.iconSprite = sprite;
+        }
     }
 
     public reset(): void {

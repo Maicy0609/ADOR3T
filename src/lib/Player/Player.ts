@@ -17,6 +17,7 @@ import { MoveTrackManager } from './MoveTrackManager';
 import { PositionTrackManager } from './PositionTrackManager';
 import { InstancedMeshManager } from './InstancedMeshManager';
 import { OverlayHUD } from './OverlayHUD';
+import { getIconTexture, getTwirlTexture, getSetSpeedTexture, createIconSprite } from './IconLoader';
 import Stats from 'three/examples/jsm/libs/stats.module.js';
 
 export class Player implements IPlayer {
@@ -50,13 +51,6 @@ export class Player implements IPlayer {
   // Spatial indexing for fast visibility checks
   private spatialGrid: Map<number, number[]> = new Map();
   private spatialGridSize: number = 5; // Grid cell size in world units
-  
-  // Shared decoration geometries and materials (prevent creating new ones for each tile)
-  private sharedDecoGeometry: THREE.CircleGeometry | null = null;
-  private sharedTwirlMaterial: THREE.MeshBasicMaterial | null = null;
-  private sharedSpeedUpMaterial: THREE.MeshBasicMaterial | null = null;
-  private sharedSpeedDownMaterial: THREE.MeshBasicMaterial | null = null;
-  
   // Hitsound
   private hitsoundManager: HitsoundManager;
   
@@ -355,9 +349,6 @@ export class Player implements IPlayer {
     this.scene.add(this.camera);
     
     this.initRenderer();
-    
-    // Initialize shared decoration resources
-    this.initSharedDecorationResources();
     
     // Build spatial index for fast visibility checks
     this.buildSpatialIndex();
@@ -2416,19 +2407,6 @@ export class Player implements IPlayer {
     };
   }
 
-  /**
-   * Initialize shared decoration geometries and materials
-   */
-  private initSharedDecorationResources(): void {
-    const decoSize = 0.275 * 0.8;
-    
-    this.sharedDecoGeometry = new THREE.CircleGeometry(decoSize / 2, 16);
-    
-    this.sharedTwirlMaterial = new THREE.MeshBasicMaterial({ color: 0x800080 });
-    this.sharedSpeedUpMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
-    this.sharedSpeedDownMaterial = new THREE.MeshBasicMaterial({ color: 0x0000ff });
-  }
-
   private lastVisibleCheckPos = new THREE.Vector3(Infinity, Infinity, Infinity);
   private lastVisibleCheckZoom = -1;
 
@@ -2679,11 +2657,12 @@ export class Player implements IPlayer {
         tileMesh.material.visible = false;
     }
     
-    // Add decorations
+    // Add event icons (Twirl, SetSpeed, End) using PNG sprites
     const decoZ = 0.002;
+    const initialOpacity = (tileMesh.userData.opacity ?? 1) * (tileMesh.userData.trackColorOpacity ?? 1);
     let hasTwirl = false;
     let hasSetSpeed = false;
-    
+
     if (this.tileEvents.has(index)) {
         const events = this.tileEvents.get(index)!;
         events.forEach(e => {
@@ -2691,40 +2670,32 @@ export class Player implements IPlayer {
             if (e.eventType === 'SetSpeed') hasSetSpeed = true;
         });
     }
-    
-    if (hasTwirl && this.sharedDecoGeometry && this.sharedTwirlMaterial) {
-        // Use a unique material for each decoration so opacity can be changed independently
-        const decoMaterial = this.sharedTwirlMaterial.clone();
-        const twirlMesh = new THREE.Mesh(this.sharedDecoGeometry, decoMaterial);
-        twirlMesh.position.set(0, 0, decoZ);
-        // Copy parent mesh combined opacity to the decoration mesh
-        // Always transparent=true so opacity changes take effect without shader recompile
-        const initialOpacity = (tileMesh.userData.opacity ?? 1) * (tileMesh.userData.trackColorOpacity ?? 1);
-        decoMaterial.transparent = true;
-        decoMaterial.opacity = initialOpacity;
-        tileMesh.add(twirlMesh);
-    }
-    
-    if (hasSetSpeed && this.sharedDecoGeometry) {
+
+    // Last tile → End icon
+    const tileCount = this.levelData.tiles?.length ?? 0;
+    if (index === tileCount - 1) {
+        const tex = getIconTexture('End');
+        const sprite = createIconSprite(tex, initialOpacity, 0.18);
+        sprite.position.set(0, 0, decoZ);
+        tileMesh.add(sprite);
+    } else if (hasTwirl) {
+        const tileAngle = this.levelData.tiles?.[index]?.angle ?? 180;
+        const dir = this.tileIsCW[index] ? -1 : 1;
+        const texType = getTwirlTexture(tileAngle, dir);
+        const tex = getIconTexture(texType);
+        const sprite = createIconSprite(tex, initialOpacity, 0.22);
+        sprite.position.set(0, 0, decoZ);
+        tileMesh.add(sprite);
+    } else if (hasSetSpeed) {
         const currentBPM = this.tileBPM[index];
         const prevBPM = index > 0 ? this.tileBPM[index - 1] : (this.levelData.settings.bpm || 100);
         const ratio = currentBPM / prevBPM;
-        const initialOpacity = tileMesh.userData.opacity !== undefined ? tileMesh.userData.opacity : 1.0;
-        
-        if (ratio > 1.05 && this.sharedSpeedUpMaterial) {
-            const decoMaterial = this.sharedSpeedUpMaterial.clone();
-            const speedMesh = new THREE.Mesh(this.sharedDecoGeometry, decoMaterial);
-            speedMesh.position.set(0, 0, decoZ + (hasTwirl ? 0.001 : 0));
-            decoMaterial.transparent = true;
-            decoMaterial.opacity = initialOpacity;
-            tileMesh.add(speedMesh);
-        } else if (ratio < 0.95 && this.sharedSpeedDownMaterial) {
-            const decoMaterial = this.sharedSpeedDownMaterial.clone();
-            const speedMesh = new THREE.Mesh(this.sharedDecoGeometry, decoMaterial);
-            speedMesh.position.set(0, 0, decoZ + (hasTwirl ? 0.001 : 0));
-            decoMaterial.transparent = true;
-            decoMaterial.opacity = initialOpacity;
-            tileMesh.add(speedMesh);
+        if (ratio > 1.05 || ratio < 0.95) {
+            const texType = getSetSpeedTexture(ratio);
+            const tex = getIconTexture(texType);
+            const sprite = createIconSprite(tex, initialOpacity, 0.22);
+            sprite.position.set(0, 0, decoZ);
+            tileMesh.add(sprite);
         }
     }
     
@@ -3276,23 +3247,6 @@ export class Player implements IPlayer {
     
     if (this.planetRed) this.planetRed.dispose();
     if (this.planetBlue) this.planetBlue.dispose();
-    
-    if (this.sharedDecoGeometry) {
-      this.sharedDecoGeometry.dispose();
-      this.sharedDecoGeometry = null;
-    }
-    if (this.sharedTwirlMaterial) {
-      this.sharedTwirlMaterial.dispose();
-      this.sharedTwirlMaterial = null;
-    }
-    if (this.sharedSpeedUpMaterial) {
-      this.sharedSpeedUpMaterial.dispose();
-      this.sharedSpeedUpMaterial = null;
-    }
-    if (this.sharedSpeedDownMaterial) {
-      this.sharedSpeedDownMaterial.dispose();
-      this.sharedSpeedDownMaterial = null;
-    }
 
     this.spatialGrid.clear();
 
