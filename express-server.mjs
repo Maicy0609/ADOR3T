@@ -9,7 +9,7 @@ const HOST = "0.0.0.0"
 
 app.use(express.static(resolve(__dirname, "dist")))
 
-app.get("*", (_req, res) => {
+app.get("/{*path}", (_req, res) => {
   res.sendFile(resolve(__dirname, "dist", "index.html"))
 })
 
