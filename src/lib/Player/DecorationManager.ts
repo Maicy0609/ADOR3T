@@ -516,6 +516,7 @@ export class DecorationManager {
             const meshData = isMidspin
                 ? createTrackMesh(-180, 0, true, undefined, undefined, undefined, trackStyle)
                 : createTrackMesh(angle0, angle1, false, undefined, undefined, undefined, trackStyle);
+            const trackOpacity = event.trackOpacity !== undefined ? event.trackOpacity / 100 : 1;
             if (meshData && meshData.faces && meshData.faces.length > 0) {
                 const geometry = new THREE.BufferGeometry();
                 geometry.setIndex(meshData.faces);
@@ -526,7 +527,6 @@ export class DecorationManager {
                 // Apply colors using mask-based approach (matching Player.ts)
                 const trackColor = event.trackColor;
                 const trackColor2 = event.trackColor2 || trackColor;
-                const trackOpacity = event.trackOpacity !== undefined ? event.trackOpacity / 100 : 1;
 
                 if (trackColor) {
                     const [fillHex] = parseDecoColor(trackColor, 'ffffff');
