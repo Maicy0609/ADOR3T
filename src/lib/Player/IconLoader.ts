@@ -68,7 +68,7 @@ export interface IconSpriteOptions {
     scale?: number;
 }
 
-export function createIconSprite(tex: THREE.Texture, opacity = 1, targetHeight = 0.22): THREE.Sprite {
+export function createIconSprite(tex: THREE.Texture, opacity = 1, size = 0.22): THREE.Sprite {
     const mat = new THREE.SpriteMaterial({
         map: tex,
         transparent: true,
@@ -77,9 +77,7 @@ export function createIconSprite(tex: THREE.Texture, opacity = 1, targetHeight =
         depthWrite: false,
     });
     const sprite = new THREE.Sprite(mat);
-    const img = tex.image;
-    const aspect = (img && img.width > 0 && img.height > 0) ? img.width / img.height : 1;
-    sprite.scale.set(targetHeight * aspect, targetHeight, 1);
+    sprite.scale.set(size, size, 1);
     sprite.center.set(0.5, 0.5);
     return sprite;
 }

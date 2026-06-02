@@ -383,25 +383,9 @@ export class MoveTrackManager {
         const rotationUsed = event.rotationOffset !== undefined && isFieldEnabled(event, 'rotationOffset');
         const scaleUsed = event.scale !== undefined && isFieldEnabled(event, 'scale');
         const opacityUsed = event.opacity != null && isFieldEnabled(event, 'opacity');
-        
-        // Handle position offset - may contain null values for individual axes
-        const positionOffsetX = positionUsed && event.positionOffset[0] != null ? event.positionOffset[0] : null;
-        const positionOffsetY = positionUsed && event.positionOffset[1] != null ? event.positionOffset[1] : null;
-        
+        const positionOffset = positionUsed ? (event.positionOffset || [0, 0]) : [0, 0];
         const rotationOffset = rotationUsed ? (event.rotationOffset || 0) : 0;
-        
-        // Handle scale - may contain null values for individual axes
-        let scaleX: number | null = null;
-        let scaleY: number | null = null;
-        if (scaleUsed && event.scale) {
-            if (Array.isArray(event.scale)) {
-                scaleX = event.scale[0] != null ? event.scale[0] : null;
-                scaleY = event.scale[1] != null ? event.scale[1] : null;
-            } else {
-                scaleX = scaleY = event.scale;
-            }
-        }
-        
+        const scale = scaleUsed ? (event.scale || [100, 100]) : [100, 100];
         const opacity = opacityUsed ? event.opacity / 100 : 1;
 
         const easingFunc = this.getEasingFunction(ease);
@@ -420,20 +404,16 @@ export class MoveTrackManager {
 
             if (!tileMesh) {
                 const targets: PendingMoveTrackTarget['targets'] = {};
-                if (positionOffsetX != null) {
-                    targets.positionX = tileBasePosX + positionOffsetX;
-                }
-                if (positionOffsetY != null) {
-                    targets.positionY = tileBasePosY + positionOffsetY;
+                if (positionUsed) {
+                    targets.positionX = tileBasePosX + positionOffset[0];
+                    targets.positionY = tileBasePosY + positionOffset[1];
                 }
                 if (rotationUsed) {
                     targets.rotationZ = tileBaseRot + rotationOffset * Math.PI / 180;
                 }
-                if (scaleX != null) {
-                    targets.scaleX = scaleX / 100;
-                }
-                if (scaleY != null) {
-                    targets.scaleY = scaleY / 100;
+                if (scaleUsed) {
+                    targets.scaleX = scale[0] / 100;
+                    targets.scaleY = scale[1] / 100;
                 }
                 if (opacityUsed) {
                     targets.opacity = opacity;
@@ -457,15 +437,13 @@ export class MoveTrackManager {
             }
 
             // Position: absolute interpolation (overwrite model)
-            if (positionOffsetX != null) {
-                const targetX = tileBasePosX + positionOffsetX;
+            if (positionUsed) {
+                const targetX = tileBasePosX + positionOffset[0];
+                const targetY = tileBasePosY + positionOffset[1];
                 if (!isNaN(targetX)) {
                     this.animateProperty(tileMesh, 'positionX', tileMesh.position.x, targetX,
                         duration, easingFunc, state, currentTime);
                 }
-            }
-            if (positionOffsetY != null) {
-                const targetY = tileBasePosY + positionOffsetY;
                 if (!isNaN(targetY)) {
                     this.animateProperty(tileMesh, 'positionY', tileMesh.position.y, targetY,
                         duration, easingFunc, state, currentTime);
@@ -485,15 +463,13 @@ export class MoveTrackManager {
             }
 
             // Scale: absolute interpolation (overwrite model)
-            if (scaleX != null) {
-                const targetScaleX = scaleX / 100;
+            if (scaleUsed) {
+                const targetScaleX = scale[0] / 100;
+                const targetScaleY = scale[1] / 100;
                 if (!isNaN(targetScaleX)) {
                     this.animateProperty(tileMesh, 'scaleX', tileMesh.scale.x, targetScaleX,
                         duration, easingFunc, state, currentTime);
                 }
-            }
-            if (scaleY != null) {
-                const targetScaleY = scaleY / 100;
                 if (!isNaN(targetScaleY)) {
                     this.animateProperty(tileMesh, 'scaleY', tileMesh.scale.y, targetScaleY,
                         duration, easingFunc, state, currentTime);
@@ -617,25 +593,9 @@ export class MoveTrackManager {
         const rotationUsed = event.rotationOffset !== undefined && isFieldEnabled(event, 'rotationOffset');
         const scaleUsed = event.scale !== undefined && isFieldEnabled(event, 'scale');
         const opacityUsed = event.opacity != null && isFieldEnabled(event, 'opacity');
-        
-        // Handle position offset - may contain null values for individual axes
-        const positionOffsetX = positionUsed && event.positionOffset[0] != null ? event.positionOffset[0] : null;
-        const positionOffsetY = positionUsed && event.positionOffset[1] != null ? event.positionOffset[1] : null;
-        
+        const positionOffset = positionUsed ? (event.positionOffset || [0, 0]) : [0, 0];
         const rotationOffset = rotationUsed ? (event.rotationOffset || 0) : 0;
-        
-        // Handle scale - may contain null values for individual axes
-        let scaleX: number | null = null;
-        let scaleY: number | null = null;
-        if (scaleUsed && event.scale) {
-            if (Array.isArray(event.scale)) {
-                scaleX = event.scale[0] != null ? event.scale[0] : null;
-                scaleY = event.scale[1] != null ? event.scale[1] : null;
-            } else {
-                scaleX = scaleY = event.scale;
-            }
-        }
-        
+        const scale = scaleUsed ? (event.scale || [100, 100]) : [100, 100];
         const opacity = opacityUsed ? event.opacity / 100 : 1;
 
         for (let i = start; i <= end; i += 1 + gapLength) {
@@ -649,20 +609,16 @@ export class MoveTrackManager {
 
             if (!tileMesh) {
                 const targets: PendingMoveTrackTarget['targets'] = {};
-                if (positionOffsetX != null) {
-                    targets.positionX = tileBasePosX + positionOffsetX;
-                }
-                if (positionOffsetY != null) {
-                    targets.positionY = tileBasePosY + positionOffsetY;
+                if (positionUsed) {
+                    targets.positionX = tileBasePosX + positionOffset[0];
+                    targets.positionY = tileBasePosY + positionOffset[1];
                 }
                 if (rotationUsed) {
                     targets.rotationZ = tileBaseRot + rotationOffset * Math.PI / 180;
                 }
-                if (scaleX != null) {
-                    targets.scaleX = scaleX / 100;
-                }
-                if (scaleY != null) {
-                    targets.scaleY = scaleY / 100;
+                if (scaleUsed) {
+                    targets.scaleX = scale[0] / 100;
+                    targets.scaleY = scale[1] / 100;
                 }
                 if (opacityUsed) {
                     targets.opacity = opacity;
@@ -680,26 +636,18 @@ export class MoveTrackManager {
                 continue;
             }
 
-            if (positionOffsetX != null) {
-                const tx = tileBasePosX + positionOffsetX;
+            if (positionUsed) {
+                const tx = tileBasePosX + positionOffset[0];
+                const ty = tileBasePosY + positionOffset[1];
                 if (!isNaN(tx)) tileMesh.position.x = tx;
-            }
-            if (positionOffsetY != null) {
-                const ty = tileBasePosY + positionOffsetY;
                 if (!isNaN(ty)) tileMesh.position.y = ty;
-            }
-            if (scaleX != null) {
-                tileMesh.scale.x = scaleX / 100;
-            }
-            if (scaleY != null) {
-                tileMesh.scale.y = scaleY / 100;
             }
             if (rotationUsed) {
                 tileMesh.rotation.z = tileBaseRot + rotationOffset * Math.PI / 180;
             }
             if (scaleUsed) {
-                if (scaleX != null && !isNaN(scaleX / 100)) tileMesh.scale.x = scaleX / 100;
-                if (scaleY != null && !isNaN(scaleY / 100)) tileMesh.scale.y = scaleY / 100;
+                if (!isNaN(scale[0] / 100)) tileMesh.scale.x = scale[0] / 100;
+                if (!isNaN(scale[1] / 100)) tileMesh.scale.y = scale[1] / 100;
             }
             if (opacityUsed) {
                 tileMesh.userData.opacity = opacity;

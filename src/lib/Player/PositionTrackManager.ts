@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { isEventActive } from './EventUtils';
+import { Level } from 'adofai';
 
 export interface PositionTrackEvent {
     positionOffset?: [number, number] | { x: number; y: number };
@@ -29,7 +30,7 @@ export class PositionTrackManager {
 
     private static TILE_SIZE = 1.0;
 
-    constructor(levelData: any) {
+    constructor(levelData: Level) {
         this.levelData = levelData;
         this.positionTrackEvents = new Map();
         this.tileTransforms = new Map();
@@ -95,8 +96,8 @@ export class PositionTrackManager {
                 rotation: action.rotation,
                 scale: action.scale,
                 opacity: action.opacity,
-                justThisTile: action.justThisTile || false,
-                editorOnly: action.editorOnly || false,
+                justThisTile: action.justThisTile === true || action.justThisTile === 'Enabled',
+                editorOnly: action.editorOnly === true || action.editorOnly === 'Enabled',
                 stickToFloors: action.stickToFloors,
                 disabled: action.disabled,
             });

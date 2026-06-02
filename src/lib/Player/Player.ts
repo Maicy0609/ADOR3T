@@ -19,6 +19,8 @@ import { InstancedMeshManager } from './InstancedMeshManager';
 import { OverlayHUD } from './OverlayHUD';
 import { getIconTexture, getTwirlTexture, getSetSpeedTexture, createIconSprite } from './IconLoader';
 import Stats from 'three/examples/jsm/libs/stats.module.js';
+import type { Bloom, Flash, RecolorTrack } from 'adofai/event';
+import { Level } from 'adofai';
 
 export class Player implements IPlayer {
   private container: HTMLElement | null = null;
@@ -137,16 +139,16 @@ export class Player implements IPlayer {
   private bloomThreshold: number = 50;
   private bloomIntensity: number = 100;
   private bloomColor: string = 'ffffff';
-  private bloomTimeline: { time: number; event: any }[] = [];
+  private bloomTimeline: { time: number; event: Bloom }[] = [];
   private lastBloomTimelineIndex: number = -1;
   
   // Flash Effect
   private flashEffect: FlashEffect | null = null;
-  private flashTimeline: { time: number; event: any }[] = [];
+  private flashTimeline: { time: number; event: Flash }[] = [];
   private lastFlashTimelineIndex: number = -1;
   
   // Recolor Track
-  private recolorTimeline: { time: number; event: any }[] = [];
+  private recolorTimeline: { time: number; event: RecolorTrack }[] = [];
   private lastRecolorTimelineIndex: number = -1;
   
   // Custom Background (SetCustomBG event)
@@ -176,7 +178,7 @@ export class Player implements IPlayer {
 
   private music: IMusic = new HTMLAudioMusic();
 
-  constructor(levelData: ILevelData, rendererType: 'webgl' | 'webgpu' = 'webgpu') {
+  constructor(levelData: Level, rendererType: 'webgl' | 'webgpu' = 'webgpu') {
     this.rendererType = rendererType;
     this.levelData = levelData;
     
@@ -306,7 +308,7 @@ export class Player implements IPlayer {
 
     // Initialize MoveTrack Manager
     this.moveTrackManager = new MoveTrackManager(
-      this.levelData,
+      this.levelData as Level,
       this.tileStartTimes,
       this.tileBPM
     );
@@ -332,15 +334,15 @@ export class Player implements IPlayer {
       if (this.instancedMeshManager) {
         this.instancedMeshManager.updateTileTransform(tileIndex, position, rotation, scale, opacity);
       }
+      const mesh = this.tiles.get(tileIndex.toString());
+      if (mesh) {
+        this.updateTileChildSpriteRotations(mesh, this.camera.rotation.z);
+      }
     };
 
     // Add lights
-    const ambientLight = new THREE.AmbientLight(0x404040, 1.0);
-    this.scene.add(ambientLight);
-    
     const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0);
     directionalLight.position.set(10, 10, 15);
-    directionalLight.castShadow = true;
     this.scene.add(directionalLight);
     
     // Default camera setup - will be updated on resize/init
@@ -1441,9 +1443,17 @@ export class Player implements IPlayer {
 
   private updateAnimatedTiles(): void {
     const time = this.elapsedTime / 1000;
+    const cameraRotation = this.camera.rotation.z;
 
     this.visibleTiles.forEach(id => {
         const index = parseInt(id);
+        const mesh = this.tiles.get(id);
+        
+        // Update sprite rotations to follow camera
+        if (mesh) {
+            this.updateTileChildSpriteRotations(mesh, cameraRotation);
+        }
+
         const config = this.tileColorManager.getTileRecolorConfig(index);
 
         if (config && ['Glow', 'Blink', 'Rainbow', 'Volume'].includes(config.trackColorType)) {
@@ -1944,6 +1954,11 @@ export class Player implements IPlayer {
         }
       });
       
+      // Update tile sprite rotations
+      this.tiles.forEach((mesh) => {
+        this.updateTileChildSpriteRotations(mesh, this.camera.rotation.z);
+      });
+
       // Update tileStickToFloors array
       for (let i = 0; i < this.levelData.tiles.length; i++) {
         const transform = allTransforms.get(i);
@@ -1992,6 +2007,11 @@ export class Player implements IPlayer {
           }
         });
       }
+    });
+
+    // Update tile sprite rotations to follow tile transforms
+    this.tiles.forEach((mesh) => {
+      this.updateTileChildSpriteRotations(mesh, this.camera.rotation.z);
     });
 
     // Update tileStickToFloors array
@@ -2049,7 +2069,9 @@ export class Player implements IPlayer {
         trackColorPulse: event.trackColorPulse || settings.trackColorPulse || 'None',
         trackColorAnimDuration: event.trackColorAnimDuration || settings.trackColorAnimDuration || 2,
         trackPulseLength: event.trackPulseLength || settings.trackPulseLength || 10,
-        trackOpacity: parseHexAlpha(event.trackColor || defaultColor)
+        trackOpacity: parseHexAlpha(event.trackColor || defaultColor),
+        startFloor: event.floor,
+        recolorTriggerTime: event.recolorTriggerTime
     };
 
     const minIdx = Math.max(0, Math.min(startIdx, endIdx));
@@ -2059,6 +2081,27 @@ export class Player implements IPlayer {
         this.tileColorManager.setTileRecolorConfig(i, config);
         const rendered = this.tileColorManager.getTileRenderer(i, this.elapsedTime / 1000, config, this.music.amplitude);
         this.applyTileColor(i, rendered.color, rendered.bgcolor, rendered.opacity);
+
+        // Update instanced mesh with new trackStyle (shapeKey + texSeed)
+        if (this.instancedMeshManager) {
+            const newTrackStyle = config.trackStyle;
+            const texSeed = newTrackStyle === 'Standard' ? Math.random() * 10 + 1 : 0;
+            const tileMesh = this.tiles.get(i.toString());
+            if (tileMesh) {
+                const resolved = this.getResolvedTileDirection(i);
+                const prevResolved = i > 0 ? this.getResolvedTileDirection(i - 1) : 0;
+                const pred = i > 0 ? (prevResolved || 0) - 180 : -180;
+                const currentDirection = resolved || 0;
+                const is999 = this.levelData.tiles[i]?.angle === 0;
+                const newShapeKey = `${pred}_${currentDirection}_${is999}_${newTrackStyle}`;
+
+                this.instancedMeshManager.updateTile(
+                    i, newShapeKey,
+                    tileMesh.position, tileMesh.rotation as THREE.Euler, tileMesh.scale,
+                    rendered.color, rendered.bgcolor, rendered.opacity, true, texSeed
+                );
+            }
+        }
     }
   }
 
@@ -2127,6 +2170,15 @@ export class Player implements IPlayer {
             }
         }
     }
+  }
+
+  private updateTileChildSpriteRotations(mesh: THREE.Mesh, cameraRotation: number = 0): void {
+    const tileZ = mesh.rotation.z;
+    mesh.children.forEach(child => {
+        if (child instanceof THREE.Sprite && child.userData.baseRotation !== undefined) {
+            (child.material as THREE.SpriteMaterial).rotation = child.userData.baseRotation + tileZ - cameraRotation;
+        }
+    });
   }
 
   private buildFlashTimeline(): void {
@@ -2677,6 +2729,7 @@ export class Player implements IPlayer {
         const tex = getIconTexture('End');
         const sprite = createIconSprite(tex, initialOpacity, 0.36);
         sprite.position.set(0, 0, decoZ);
+        sprite.userData.baseRotation = 0;
         tileMesh.add(sprite);
     } else if (hasTwirl) {
         const tileAngle = this.levelData.tiles?.[index]?.angle ?? 180;
@@ -2693,6 +2746,7 @@ export class Player implements IPlayer {
                 ? exitAngle - Math.PI / 3
                 : exitAngle - Math.PI / 6;
             (sprite.material as THREE.SpriteMaterial).rotation = r;
+            sprite.userData.baseRotation = r;
         }
         tileMesh.add(sprite);
     } else if (hasSetSpeed) {
@@ -2704,9 +2758,12 @@ export class Player implements IPlayer {
             const tex = getIconTexture(texType);
             const sprite = createIconSprite(tex, initialOpacity, 0.44);
             sprite.position.set(0, 0, decoZ);
+            sprite.userData.baseRotation = 0;
             tileMesh.add(sprite);
         }
     }
+
+    this.updateTileChildSpriteRotations(tileMesh, this.camera.rotation.z);
     
     this.tiles.set(id, tileMesh);
 

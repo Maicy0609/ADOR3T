@@ -2,28 +2,22 @@ import * as THREE from 'three'
 
 interface Color { r: number; g: number; b: number; }
 
-const TILE_WIDTH = 0.275;
-const TILE_LENGTH = 0.5;
-const OUTLINE = 0.025;
+const TILE_WIDTH = 0.2695;
+const TILE_LENGTH = 0.49;
+const OUTLINE = 0.0125;
 
-// ========== 辅助函数（与 tile_svg 对齐） ==========
-
-// 正取模（与 tile_svg 的 fmol 一致）
 const fmod = (a: number, b: number): number => {
     return a - b * Math.floor(a / b);
 };
 
-// 线性插值（与 tile_svg 的 l 一致）
 const lerp = (a: number, b: number, t: number): number => {
     return a + t * (b - a);
 };
 
-// 角度转弧度
 const d2r = (deg: number): number => deg * Math.PI / 180;
 const sin = (deg: number): number => Math.sin(d2r(deg));
 const cos = (deg: number): number => Math.cos(d2r(deg));
 
-// q(x) 函数：根据角度计算内圆半径系数（与 tile_svg 完全一致）
 const q = (x: number): number => {
     if (x >= 0 && x <= 5) return 1;
     if (x > 5 && x <= 30) return lerp(1, 0.83, Math.sqrt((x - 5) / 25));
@@ -33,13 +27,11 @@ const q = (x: number): number => {
     return 0;
 };
 
-// f(x, w) 函数：计算圆心到原点的距离（与 tile_svg 完全一致）
 const f = (x: number, w: number): number => {
     if (x <= 5) return 0;
     return -1 * (lerp(0, w, q(x)) - w) / sin(x / 2);
 };
 
-// 生成扇形弧段上的点（与 tile_svg 的 Sector 一致）
 const Sector = (
     Cx: number, Cy: number,
     rad: number, ang: number, dir: number,
@@ -50,7 +42,6 @@ const Sector = (
     let d = dir;
     const lastPt = pts[pts.length - 1];
     
-    // 检查起始点与最后一个点的距离，决定扫描方向
     if (rad < Math.round(Math.sqrt(
         Math.pow(Cx + rad * cos(angle) - lastPt[0], 2) +
         Math.pow(Cy + rad * sin(angle) - lastPt[1], 2)
@@ -75,13 +66,13 @@ const Sector = (
     return pts;
 };
 
-// 计算多边形顶点（与 tile_svg 的 CaculatePoints 完全一致）
+// 计算多边形顶点（与  CaculatePoints 完全一致）
 const CaculatePoints = (
     ang1: number, ang2: number,
     wid: number, len: number,
     mr: number
 ): [number, number][] => {
-    // 角度取负（tile_svg 的方向体系）
+    // 角度取负（方向体系）
     const a1 = -ang1;
     const a2 = -ang2;
     

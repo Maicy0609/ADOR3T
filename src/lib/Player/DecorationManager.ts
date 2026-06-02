@@ -119,6 +119,14 @@ class DecorationInstance {
     private animStartColor: THREE.Color = new THREE.Color();
     private animTargetColor: THREE.Color = new THREE.Color();
     private originalVisible: boolean = true;
+    private animStartR = 0;
+    private animStartG = 0;
+    private animStartB = 0;
+    private animTargetR = 0;
+    private animTargetG = 0;
+    private animTargetB = 0;
+    private animHasColor = false;
+    private _isStaticWorld = true;
 
     constructor(config: Partial<DecorationConfig>) {
         this.config = { ...defaultDecorationConfig, ...config };
@@ -134,6 +142,11 @@ class DecorationInstance {
         this.currentParallax.set(this.config.parallax[0] / 100, this.config.parallax[1] / 100);
         this.currentParallaxOffset.set(this.config.parallaxOffset[0], this.config.parallaxOffset[1]);
         this.originalVisible = this.config.visible;
+        const c = this.config;
+        this._isStaticWorld = c.relativeTo === DecPlacementType.Tile
+            && c.parallax[0] === 100 && c.parallax[1] === 100
+            && c.parallaxOffset[0] === 0 && c.parallaxOffset[1] === 0
+            && !c.lockRotation && !c.lockScale;
     }
 
     private formatHex(hex: string): string {
@@ -187,6 +200,13 @@ class DecorationInstance {
     }
 
     public updatePosition(camPos: THREE.Vector3, camRot: number, camZoom: number): void {
+        if (this._isStaticWorld) {
+            const px = camPos.x - this.pivotPos.x;
+            const py = camPos.y - this.pivotPos.y;
+            this.container.position.x = this.currentPosition.x + px;
+            this.container.position.y = this.currentPosition.y + py;
+            return;
+        }
         let sm = 1;
         if (this.config.lockScale && camZoom > 0) sm = 100 / camZoom;
         const ct = this.config.relativeTo;
@@ -234,10 +254,10 @@ class DecorationInstance {
         if (s.opacity !== undefined && t.opacity !== undefined) {
             this.currentOpacity = (s.opacity + (t.opacity - s.opacity) * ep) / 100;
         }
-        if (s.color && t.color) {
-            this.animStartColor.set(this.formatHex(s.color));
-            this.animTargetColor.set(this.formatHex(t.color));
-            this.currentColor.lerpColors(this.animStartColor, this.animTargetColor, ep);
+        if (this.animHasColor) {
+            this.currentColor.r = this.animStartR + (this.animTargetR - this.animStartR) * ep;
+            this.currentColor.g = this.animStartG + (this.animTargetG - this.animStartG) * ep;
+            this.currentColor.b = this.animStartB + (this.animTargetB - this.animStartB) * ep;
         }
         if (s.parallax && t.parallax) {
             this.currentParallax.x = (s.parallax[0] + (t.parallax[0] - s.parallax[0]) * ep) / 100;
@@ -270,10 +290,7 @@ class DecorationInstance {
 
     public startAnimation(targetValues: Partial<DecorationConfig>, duration: number, ease: string, startTime: number, movementType: DecPlacementType): void {
         if (this.config.animating) { this.applyAnimationTarget(); this.config.animating = false; }
-        const animStartPos = movementType === DecPlacementType.LastPosition
-            ? new THREE.Vector2(this.currentPosition.x, this.currentPosition.y)
-            : new THREE.Vector2(this.startPos.x, this.startPos.y);
-        // Start values snap from CURRENT state (not config), so consecutive tweens don't jump
+        const animStartPos = movementType === DecPlacementType.LastPosition ? this.currentPosition : this.startPos;
         this.config.animationStartValues = {
             positionOffset: [this.currentPosition.x, this.currentPosition.y],
             rotationOffset: this.currentRotation - this.config.rotation,
@@ -285,16 +302,19 @@ class DecorationInstance {
         };
         this.config.animationTargetValues = { ...targetValues };
         if (targetValues.positionOffset) {
-            // Target is always relative to the original reference (startPos or currentPos for LastPosition)
             this.config.animationTargetValues.positionOffset = [
                 animStartPos.x + targetValues.positionOffset[0],
                 animStartPos.y + targetValues.positionOffset[1]
             ];
         }
-        // RotationOffset is additive in the game: currentRotation + event.rotationOffset
         if (targetValues.rotationOffset !== undefined) {
             this.config.animationTargetValues.rotationOffset = (this.currentRotation - this.config.rotation) + targetValues.rotationOffset;
         }
+        const sc = this.config.animationStartValues.color;
+        if (sc) { this.animStartR = parseInt(sc.slice(1, 3), 16) / 255; this.animStartG = parseInt(sc.slice(3, 5), 16) / 255; this.animStartB = parseInt(sc.slice(5, 7), 16) / 255; }
+        const tc = targetValues.color;
+        if (tc) { const tr = tc.replace(/^#/,'').slice(0,6); this.animTargetR = parseInt(tr.slice(0, 2), 16) / 255; this.animTargetG = parseInt(tr.slice(2, 4), 16) / 255; this.animTargetB = parseInt(tr.slice(4, 6), 16) / 255; }
+        this.animHasColor = !!(sc && tc);
         this.config.animating = true;
         this.config.animationStart = startTime;
         this.config.animationDuration = duration;
@@ -303,6 +323,7 @@ class DecorationInstance {
 
     public reset(): void {
         this.config.animating = false;
+        this.animHasColor = false;
         this.config.animationStartValues = {};
         this.config.animationTargetValues = {};
         this.config.visible = this.originalVisible;
@@ -331,6 +352,7 @@ export class DecorationManager {
     private tileStartTimes: number[];
     private tileBPM: number[];
     private decorations: Map<string, DecorationInstance> = new Map();
+    private decoList: DecorationInstance[] = [];
     private taggedDecorations: Map<string, DecorationInstance[]> = new Map();
     private decorationEventsTimeline: { time: number; event: any }[] = [];
     private lastDecorationEventIndex: number = -1;
@@ -338,10 +360,13 @@ export class DecorationManager {
     private tileSize: number = 1.0;
     private textureLoader: THREE.TextureLoader;
     private textureCache: Map<string, THREE.Texture> = new Map();
+    private floorGeoCache: Map<string, { positions: Float32Array; indices: Uint32Array; mask: Float32Array; vertexCount: number }> = new Map();
     private customImages: Map<string, string> = new Map();
     private texturesLoading: Set<string> = new Set();
     private texturesLoaded: Set<string> = new Set();
     private placeholderTexture: THREE.Texture | null = null;
+    private _lastCamX = 0; private _lastCamY = 0; private _lastCamZoom = 0;
+    private _animatingList: DecorationInstance[] = [];
 
     constructor(scene: THREE.Scene, levelData: any, tileStartTimes: number[], tileBPM: number[]) {
         this.scene = scene;
@@ -408,10 +433,10 @@ export class DecorationManager {
 
         const floor = event.floor !== undefined ? event.floor
             : event.parentFloorNum !== undefined ? event.parentFloorNum
-            : 0;
+                : 0;
         const decoType = event.eventType === 'AddText' ? DecorationType.Text
             : event.eventType === 'AddObject' ? DecorationType.Object
-            : DecorationType.Image;
+                : DecorationType.Image;
 
         const config: Partial<DecorationConfig> = {
             decorationType: decoType,
@@ -503,53 +528,56 @@ export class DecorationManager {
             }
         } else if (objType === 'Floor') {
             const trackAngle = event.trackAngle ?? 0;
-            // Official ADOFAI: angle0 = -180 (fixed), angle1 = 180 - trackAngle
-            // trackAngle=90 → angle1=90 → 270° arc
-            // trackAngle=0 → angle1=180 → 360° arc
-            // trackAngle=360 → angle1=-180 → midspin degenerate
             const angle0 = -180;
             const angle1 = 180 - trackAngle;
             const isMidspin = event.trackType === 'Midspin' || event.trackType === 'midspin';
             const trackStyle = event.trackStyle || 'Standard';
-
-            // Use createTrackMesh to generate the proper tile mesh
-            const meshData = isMidspin
-                ? createTrackMesh(-180, 0, true, undefined, undefined, undefined, trackStyle)
-                : createTrackMesh(angle0, angle1, false, undefined, undefined, undefined, trackStyle);
+            const geoKey = angle0 + '|' + angle1 + '|' + isMidspin + '|' + trackStyle;
+            let tpl = this.floorGeoCache.get(geoKey);
+            if (!tpl) {
+                const meshData = isMidspin
+                    ? createTrackMesh(-180, 0, true, undefined, undefined, undefined, trackStyle)
+                    : createTrackMesh(angle0, angle1, false, undefined, undefined, undefined, trackStyle);
+                if (!meshData || !meshData.faces || meshData.faces.length === 0) { tpl = null; }
+                else {
+                    tpl = {
+                        positions: new Float32Array(meshData.vertices),
+                        indices: new Uint32Array(meshData.faces),
+                        mask: new Float32Array(meshData.colors),
+                        vertexCount: meshData.vertices.length / 3
+                    };
+                }
+                this.floorGeoCache.set(geoKey, tpl);
+            }
             const trackOpacity = event.trackOpacity !== undefined ? event.trackOpacity / 100 : 1;
-            if (meshData && meshData.faces && meshData.faces.length > 0) {
+            if (tpl) {
                 const geometry = new THREE.BufferGeometry();
-                geometry.setIndex(meshData.faces);
-                geometry.setAttribute('position', new THREE.Float32BufferAttribute(meshData.vertices, 3));
-                geometry.setAttribute('color', new THREE.Float32BufferAttribute([...meshData.colors], 3));
+                geometry.setIndex(new THREE.BufferAttribute(tpl.indices, 1));
+                geometry.setAttribute('position', new THREE.BufferAttribute(tpl.positions, 3));
+                const colorArray = new Float32Array(tpl.vertexCount * 3);
+                geometry.setAttribute('color', new THREE.BufferAttribute(colorArray, 3));
                 geometry.computeVertexNormals();
 
-                // Apply colors using mask-based approach (matching Player.ts)
                 const trackColor = event.trackColor;
                 const trackColor2 = event.trackColor2 || trackColor;
 
                 if (trackColor) {
                     const [fillHex] = parseDecoColor(trackColor, 'ffffff');
                     const [borderHex] = parseDecoColor(trackColor2, 'ffffff');
-                    const cFill = new THREE.Color(fillHex);
-                    const cBorder = new THREE.Color(borderHex);
-                    const colorAttr = geometry.getAttribute('color') as THREE.BufferAttribute;
-                    const colorArray = colorAttr.array as Float32Array;
-                    const maskArray = meshData.colors;
-
-                    // Same logic as Player.ts: mask < 0.5 → border, else → fill
+                    const cFillR = parseInt(fillHex.slice(1, 3), 16) / 255;
+                    const cFillG = parseInt(fillHex.slice(3, 5), 16) / 255;
+                    const cFillB = parseInt(fillHex.slice(5, 7), 16) / 255;
+                    const cBorderR = parseInt(borderHex.slice(1, 3), 16) / 255;
+                    const cBorderG = parseInt(borderHex.slice(3, 5), 16) / 255;
+                    const cBorderB = parseInt(borderHex.slice(5, 7), 16) / 255;
+                    const mask = tpl.mask;
                     for (let i = 0; i < colorArray.length; i += 3) {
-                        if (maskArray[i] < 0.5) {
-                            colorArray[i] = cBorder.r;
-                            colorArray[i + 1] = cBorder.g;
-                            colorArray[i + 2] = cBorder.b;
+                        if (mask[i] < 0.5) {
+                            colorArray[i] = cBorderR; colorArray[i + 1] = cBorderG; colorArray[i + 2] = cBorderB;
                         } else {
-                            colorArray[i] = cFill.r;
-                            colorArray[i + 1] = cFill.g;
-                            colorArray[i + 2] = cFill.b;
+                            colorArray[i] = cFillR; colorArray[i + 1] = cFillG; colorArray[i + 2] = cFillB;
                         }
                     }
-                    colorAttr.needsUpdate = true;
                 }
 
                 const mat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: trackOpacity < 1, opacity: trackOpacity, side: THREE.DoubleSide });
@@ -623,6 +651,7 @@ export class DecorationManager {
 
     private registerDecoration(deco: DecorationInstance): void {
         this.decorations.set(deco.config.id!, deco);
+        this.decoList.push(deco);
         this.container.add(deco.container);
         if (deco.config.tag) {
             const tags = deco.config.tag.split(/\s+/).filter(Boolean);
@@ -703,12 +732,17 @@ export class DecorationManager {
 
     public async preloadTextures(): Promise<number> {
         const filenames = new Set<string>();
-        this.decorations.forEach(d => { if (d.config.decorationImage) filenames.add(d.config.decorationImage); });
+        this.decoList.forEach(d => { if (d.config.decorationImage) filenames.add(d.config.decorationImage); });
         this.pendingDecorationEvents.forEach((e: any) => { if (e.decorationImage) filenames.add(e.decorationImage); });
         if (filenames.size === 0) return 0;
-        const promises: Promise<void>[] = [];
-        for (const fn of filenames) {
-            promises.push(new Promise((resolve) => {
+        const MAX_CONCURRENT = 4;
+        const queue = [...filenames];
+        let resolved = 0;
+        const loadNext = (): Promise<void> => {
+            if (resolved >= queue.length) return Promise.resolve();
+            const batch = queue.slice(resolved, resolved + MAX_CONCURRENT);
+            resolved += batch.length;
+            return Promise.all(batch.map(fn => new Promise<void>((resolve) => {
                 if (this.textureCache.has(fn)) { resolve(); return; }
                 const url = this.findImageUrl(fn);
                 if (!url) { resolve(); return; }
@@ -720,11 +754,11 @@ export class DecorationManager {
                     this.texturesLoading.delete(fn);
                     resolve();
                 }, undefined, () => { this.texturesLoading.delete(fn); resolve(); });
-            }));
-        }
-        await Promise.all(promises);
+            }))).then(loadNext);
+        };
+        await loadNext();
         this.retryPending();
-        this.decorations.forEach(d => {
+        this.decoList.forEach(d => {
             if (d.config.decorationImage) {
                 const tex = this.textureCache.get(d.config.decorationImage);
                 if (tex) { d.setupVisual(tex); }
@@ -736,30 +770,45 @@ export class DecorationManager {
     public update(elapsedTime: number, cameraPosition: THREE.Vector3, cameraRotation: number, cameraZoom: number): void {
         const now = elapsedTime / 1000;
         this.processEvents(now);
-        const vr = 20 / cameraZoom + 5;
-        const minX = cameraPosition.x - vr, maxX = cameraPosition.x + vr;
-        const minY = cameraPosition.y - vr, maxY = cameraPosition.y + vr;
-        this.decorations.forEach(d => {
-            if (d.config.animating) d.updateAnimation(now);
-            d.updatePosition(cameraPosition, cameraRotation, cameraZoom);
+        const camX = cameraPosition.x;
+        const camY = cameraPosition.y;
+        const camZ = cameraZoom;
+        const camMoved = Math.abs(camX - this._lastCamX) > 0.01 || Math.abs(camY - this._lastCamY) > 0.01 || Math.abs(camZ - this._lastCamZoom) > 0.001;
+        if (camMoved) { this._lastCamX = camX; this._lastCamY = camY; this._lastCamZoom = camZ; }
+        const list = this.decoList;
+        const len = list.length;
+        let animCount = 0;
+        for (let i = 0; i < len; i++) {
+            const d = list[i];
+            if (d.config.animating) { d.updateAnimation(now); animCount++; }
+        }
+        if (!camMoved && animCount === 0) return;
+        const vr = 20 / camZ + 5;
+        const minX = camX - vr, maxX = camX + vr;
+        const minY = camY - vr, maxY = camY + vr;
+        for (let i = 0; i < len; i++) {
+            const d = list[i];
+            d.updatePosition(cameraPosition, cameraRotation, camZ);
+            if (!d.config.visible) continue;
             const p = d.container.position;
             const vis = p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY;
-            if (d.container.visible !== vis && d.config.visible) d.container.visible = vis;
-        });
+            if (d.container.visible !== vis) d.container.visible = vis;
+        }
     }
 
     private processEvents(now: number): void {
         if (this.lastDecorationEventIndex >= 0 && this.lastDecorationEventIndex < this.decorationEventsTimeline.length) {
             const last = this.decorationEventsTimeline[this.lastDecorationEventIndex];
             if (last && now < last.time) {
-                this.decorations.forEach(d => d.reset());
+                const list = this.decoList;
+                for (let i = 0; i < list.length; i++) list[i].reset();
                 this.lastDecorationEventIndex = -1;
             }
         }
         let safety = 0;
         while (safety < (this.decorationEventsTimeline.length + 10) &&
-               this.lastDecorationEventIndex + 1 < this.decorationEventsTimeline.length &&
-               this.decorationEventsTimeline[this.lastDecorationEventIndex + 1].time <= now) {
+            this.lastDecorationEventIndex + 1 < this.decorationEventsTimeline.length &&
+            this.decorationEventsTimeline[this.lastDecorationEventIndex + 1].time <= now) {
             this.lastDecorationEventIndex++;
             const entry = this.decorationEventsTimeline[this.lastDecorationEventIndex];
             if (entry) this.processEvent(entry.event, now);
@@ -916,14 +965,18 @@ export class DecorationManager {
     }
 
     public reset(): void {
-        this.decorations.forEach(d => d.reset());
+        const list = this.decoList;
+        for (let i = 0; i < list.length; i++) list[i].reset();
         this.lastDecorationEventIndex = -1;
     }
 
     public clear(): void {
-        this.decorations.forEach(d => { d.dispose(); this.container.remove(d.container); });
+        const list = this.decoList;
+        for (let i = 0; i < list.length; i++) { list[i].dispose(); this.container.remove(list[i].container); }
         this.decorations.clear();
+        this.decoList.length = 0;
         this.taggedDecorations.clear();
+        this.floorGeoCache.clear();
         this.decorationEventsTimeline = [];
         this.lastDecorationEventIndex = -1;
     }
@@ -939,9 +992,15 @@ export class DecorationManager {
     private parsePlacement(v: any): DecPlacementType {
         if (!v) return DecPlacementType.Tile;
         switch (v) {
-            case 'Camera': case DecPlacementType.Camera: return DecPlacementType.Camera;
-            case 'CameraAspect': case DecPlacementType.CameraAspect: return DecPlacementType.CameraAspect;
-            case 'LastPosition': case DecPlacementType.LastPosition: return DecPlacementType.LastPosition;
+            case 'Camera':
+            case DecPlacementType.Camera:
+                return DecPlacementType.Camera;
+            case 'CameraAspect':
+            case DecPlacementType.CameraAspect:
+                return DecPlacementType.CameraAspect;
+            case 'LastPosition':
+            case DecPlacementType.LastPosition:
+                return DecPlacementType.LastPosition;
             default: return DecPlacementType.Tile;
         }
     }
@@ -954,6 +1013,8 @@ export class DecorationManager {
             const m = v.match(/-?\d+\.?\d*/g);
             if (m && m.length >= 2) return [parseFloat(m[0]), parseFloat(m[1])];
         }
+        // Handle single number as uniform value (e.g., scale: 50 → [50, 50])
+        if (typeof v === 'number') return [v, v];
         return def;
     }
 }
