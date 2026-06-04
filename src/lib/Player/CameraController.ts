@@ -1,4 +1,3 @@
-import * as THREE from 'three';
 import { EasingFunctions } from './Easing';
 import { isEventActive, isFieldEnabled } from './EventUtils';
 
@@ -56,8 +55,6 @@ function getTilePosition(levelData: any, floorIndex: number): { x: number; y: nu
     const tile = levelData.tiles?.[floorIndex];
     return tile?.position ? { x: tile.position[0], y: tile.position[1] } : { x: 0, y: 0 };
 }
-
-function isNaNv(v: number): boolean { return v === undefined || v === null || isNaN(v); }
 
 // ──── CameraController ─────────────────────────────────────────────────────
 
@@ -250,7 +247,7 @@ export class CameraController {
         const posHasX = Array.isArray(rawPos) && rawPos[0] !== null && rawPos[0] !== undefined;
         const posHasY = Array.isArray(rawPos) && rawPos[1] !== null && rawPos[1] !== undefined;
         const positionUsed = Array.isArray(rawPos) && isFieldEnabled(event, 'position');
-        const targetPos = { x: posHasX ? rawPos[0] * TILE_SIZE : 0, y: posHasY ? rawPos[1] * TILE_SIZE : 0 };
+        const targetPos = { x: posHasX ? rawPos[0] * TILE_SIZE : NaN, y: posHasY ? rawPos[1] * TILE_SIZE : NaN };
 
         const rotationUsed = event.rotation !== undefined && event.rotation !== null && isFieldEnabled(event, 'rotation');
         const targetRot = rotationUsed ? event.rotation : 0;
@@ -280,29 +277,29 @@ export class CameraController {
             movementTypeUsed = false;
         }
 
-        // Step 3 — 条件性 Kill（仅 Kill 当前事件会修改的属性对应的 tween）
+        // Step 3 — 条件性 Kill（对应 C# Kill(complete: true)）
         if (positionUsed || movementTypeUsed) {
             if (!isNaN(targetPos.x) || movementTypeUsed) {
-                if (this.posXTween.active && !isNaNv(this.posXTween.endValue)) {
+                if (this.posXTween.active) {
                     this.cameraMode.position.x = this.posXTween.endValue;
                 }
                 this.posXTween.active = false;
             }
             if (!isNaN(targetPos.y) || movementTypeUsed) {
-                if (this.posYTween.active && !isNaNv(this.posYTween.endValue)) {
+                if (this.posYTween.active) {
                     this.cameraMode.position.y = this.posYTween.endValue;
                 }
                 this.posYTween.active = false;
             }
         }
         if (rotationUsed || (movementTypeUsed && isLastPosition)) {
-            if (this.rotTween.active && !isNaNv(this.rotTween.endValue)) {
+            if (this.rotTween.active) {
                 this.cameraMode.rotation = this.rotTween.endValue;
             }
             this.rotTween.active = false;
         }
         if (zoomUsed) {
-            if (this.zoomTween.active && !isNaNv(this.zoomTween.endValue)) {
+            if (this.zoomTween.active) {
                 this.cameraMode.zoom = this.zoomTween.endValue;
             }
             this.zoomTween.active = false;
@@ -430,7 +427,7 @@ export class CameraController {
         if (rotationUsed) {
             let rotOffset = 0;
             if (camMovementType === 'LastPosition') {
-                rotOffset = this.cameraMode.rotation;
+                rotOffset = cameraSnapshot?.rotation ?? this.cameraMode.rotation;
             }
             this.cameraMode.rotation = targetRot + rotOffset;
         }

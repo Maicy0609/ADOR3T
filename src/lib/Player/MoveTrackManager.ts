@@ -13,17 +13,8 @@ interface AnimationProperty {
     easingFunc: (t: number) => number;
 }
 
-interface DeltaAnimation {
-    property: string;
-    delta: number;
-    startTime: number;
-    duration: number;
-    easingFunc: (t: number) => number;
-}
-
 interface TileAnimationState {
     animations: Map<string, AnimationProperty>;
-    deltaAnimations: DeltaAnimation[];
 }
 
 interface PendingMoveTrackTarget {
@@ -119,65 +110,28 @@ export class MoveTrackManager {
             const pendingAnims = this.pendingMoveTrackTargets.get(index);
             if (pendingAnims && pendingAnims.length > 0) {
                 debugLog(playLabel, `  tile[${index}] has ${pendingAnims.length} pending MoveTrack target(s)`);
+                let state = this.tileAnimationStates.get(index);
+                if (!state) {
+                    state = { animations: new Map() };
+                    this.tileAnimationStates.set(index, state);
+                }
                 for (const pending of pendingAnims) {
-                    const elapsed = this.currentTime - pending.startTime;
-                    const progress = Math.min(elapsed / pending.duration, 1);
-
-                    if (progress >= 1) {
+                    if (pending.duration <= 0) {
                         for (const [prop, value] of Object.entries(pending.targets)) {
                             if (value === undefined) continue;
-                            switch (prop) {
-                                case 'positionX': tileMesh.position.x = value; break;
-                                case 'positionY': tileMesh.position.y = value; break;
-                                case 'rotationZ': tileMesh.rotation.z = value; break;
-                                case 'scaleX': tileMesh.scale.x = value; break;
-                                case 'scaleY': tileMesh.scale.y = value; break;
-                                case 'opacity':
-                                    if (tileMesh.material) {
-                                        if (tileMesh.material instanceof THREE.ShaderMaterial && tileMesh.material.uniforms.opacity) {
-                                            tileMesh.material.uniforms.opacity.value = value;
-                                        } else {
-                                            (tileMesh.material as any).opacity = value;
-                                        }
-                                        (tileMesh.material as any).transparent = value < 0.999;
-                                        tileMesh.userData.opacity = value;
-                                        tileMesh.visible = value > 0.001;
-                                        tileMesh.traverse((child) => {
-                                            if (child !== tileMesh && (child as any).material) {
-                                                const childMat = (child as any).material;
-                                                if (childMat.opacity !== undefined) {
-                                                    childMat.opacity = value;
-                                                }
-                                            }
-                                        });
-                                    }
-                                    break;
-                            }
+                            this.animateProperty(tileMesh, prop, NaN, value,
+                                0, pending.easingFunc, state, this.currentTime);
                         }
                     } else {
-                        let state = this.tileAnimationStates.get(index);
-                        if (!state) {
-                            state = { animations: new Map(), deltaAnimations: [] };
-                            this.tileAnimationStates.set(index, state);
-                        }
-                        const remainingDuration = pending.duration - elapsed;
+                        const elapsed = this.currentTime - pending.startTime;
+                        const remainingDuration = Math.max(pending.duration - elapsed, 0.001);
                         for (const [prop, targetValue] of Object.entries(pending.targets)) {
                             if (targetValue === undefined) continue;
-                            if (prop === 'rotationZ') {
-                                const baseRot = this.tileInitialStates.get(index)?.rotation.z ?? 0;
-                                state.deltaAnimations.push({
-                                    property: 'rotationZ',
-                                    delta: targetValue - baseRot,
-                                    startTime: pending.startTime,
-                                    duration: pending.duration,
-                                    easingFunc: pending.easingFunc
-                                });
-                                continue;
-                            }
                             let currentValue: number;
                             switch (prop) {
                                 case 'positionX': currentValue = tileMesh.position.x; break;
                                 case 'positionY': currentValue = tileMesh.position.y; break;
+                                case 'rotationZ': currentValue = tileMesh.rotation.z; break;
                                 case 'scaleX': currentValue = tileMesh.scale.x; break;
                                 case 'scaleY': currentValue = tileMesh.scale.y; break;
                                 case 'opacity': currentValue = tileMesh.userData.opacity ?? 1; break;
@@ -219,7 +173,7 @@ export class MoveTrackManager {
                     timeOffset += order * 0.0001;
                 }
                 const eventTime = startTime + timeOffset;
-                const duration = (event.duration || 1) * secPerBeat;
+                const duration = (event.duration ?? 1) * secPerBeat;
 
                 entries.push({
                     time: eventTime,
@@ -296,27 +250,6 @@ export class MoveTrackManager {
                 anyDirty = true;
             }
 
-            // Additive delta animations for rotation (multiple events coexist)
-            if (state.deltaAnimations.length > 0) {
-                const initialState = this.tileInitialStates.get(tileIndex);
-                const baseRot = initialState ? initialState.rotation.z : 0;
-                let totalDelta = 0;
-
-                for (let j = state.deltaAnimations.length - 1; j >= 0; j--) {
-                    const anim = state.deltaAnimations[j];
-                    const elapsed = currentTime - anim.startTime;
-                    const progress = Math.min(elapsed / anim.duration, 1);
-                    const easedProgress = anim.easingFunc(progress);
-                    totalDelta += anim.delta * easedProgress;
-                    if (progress >= 1) {
-                        state.deltaAnimations.splice(j, 1);
-                    }
-                }
-
-                mesh.rotation.z = baseRot + totalDelta;
-                anyDirty = true;
-            }
-
             if (anyDirty && this.tileTransformChanged) {
                 this.tileTransformChanged(
                     tileIndex,
@@ -377,7 +310,7 @@ export class MoveTrackManager {
         const end = Math.max(startTile, endTile);
         const gapLength = event.gapLength || 0;
 
-        const duration = event.duration || 1;
+        const duration = event.duration ?? 1;
         const ease = event.ease || 'Linear.easeNone';
         const positionUsed = event.positionOffset !== undefined && isFieldEnabled(event, 'positionOffset');
         const rotationUsed = event.rotationOffset !== undefined && isFieldEnabled(event, 'rotationOffset');
@@ -452,7 +385,7 @@ export class MoveTrackManager {
 
             let state = this.tileAnimationStates.get(i);
             if (!state) {
-                state = { animations: new Map(), deltaAnimations: [] };
+                state = { animations: new Map() };
                 this.tileAnimationStates.set(i, state);
             }
 
@@ -472,16 +405,13 @@ export class MoveTrackManager {
                 }
             }
 
-            // Rotation: delta-additive model (multiple events coexist)
+            // Rotation: absolute interpolation (overwrite model, matching original game)
             if (rotationUsed) {
-                const rotDelta = rotationOffset * Math.PI / 180;
-                state.deltaAnimations.push({
-                    property: 'rotationZ',
-                    delta: rotDelta,
-                    startTime: currentTime,
-                    duration,
-                    easingFunc
-                });
+                const targetRot = tileBaseRot + rotationOffset * Math.PI / 180;
+                if (!isNaN(targetRot)) {
+                    this.animateProperty(tileMesh, 'rotationZ', tileMesh.rotation.z, targetRot,
+                        duration, easingFunc, state, currentTime);
+                }
             }
 
             // Scale: absolute interpolation (overwrite model)
