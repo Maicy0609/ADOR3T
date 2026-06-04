@@ -1,13 +1,13 @@
-import * as THREE from 'three';
+import { Group, Mesh, Sprite, Vector2, Color, Texture, MeshBasicMaterial, SpriteMaterial, Material, CanvasTexture, CircleGeometry, RingGeometry, BufferGeometry, BufferAttribute, SRGBColorSpace, DoubleSide, Scene, TextureLoader, PlaneGeometry, Vector3, WebGLRenderTarget, Float32BufferAttribute } from 'three';
 import { EasingFunctions } from './Easing';
-import createTrackMesh, { MeshData } from '../Geo/mesh_reserve';
+import createTrackMesh from '../Geo/mesh_reserve';
 import { isEventActive } from './EventUtils';
 import { getIconTexture, getIconTextureForCustomFloor, createIconSprite } from './IconLoader';
 
 /**
  * Parse ADOFAI hex color which may be #RRGGBBAA (8-digit with alpha).
  * Returns [rgbString, alpha01] where rgbString is #RRGGBB and alpha01 is 0..1.
- * THREE.Color only accepts #RRGGBB, so alpha must be split out.
+ * Color only accepts #RRGGBB, so alpha must be split out.
  */
 function parseDecoColor(hex: string | undefined, fallback: string = 'ffffff'): [string, number] {
     const raw = (hex || fallback).replace(/^#/, '');
@@ -102,22 +102,20 @@ const defaultDecorationConfig: DecorationConfig = {
 
 class DecorationInstance {
     public config: DecorationConfig;
-    public container: THREE.Group;
-    public mesh: THREE.Mesh | null = null;
-    public sprite: THREE.Sprite | null = null;
-    public objectGroup: THREE.Group | null = null;
-    public iconSprite: THREE.Sprite | null = null;
-    public startPos: THREE.Vector2 = new THREE.Vector2();
-    public pivotPos: THREE.Vector2 = new THREE.Vector2();
-    public currentPosition: THREE.Vector2 = new THREE.Vector2();
-    public currentScale: THREE.Vector2 = new THREE.Vector2(1, 1);
+    public container: Group;
+    public mesh: Mesh | null = null;
+    public sprite: Sprite | null = null;
+    public objectGroup: Group | null = null;
+    public iconSprite: Sprite | null = null;
+    public startPos: Vector2 = new Vector2();
+    public pivotPos: Vector2 = new Vector2();
+    public currentPosition: Vector2 = new Vector2();
+    public currentScale: Vector2 = new Vector2(1, 1);
     public currentRotation: number = 0;
-    public currentColor: THREE.Color = new THREE.Color(0xffffff);
+    public currentColor: Color = new Color(0xffffff);
     public currentOpacity: number = 1;
-    public currentParallax: THREE.Vector2 = new THREE.Vector2(1, 1);
-    public currentParallaxOffset: THREE.Vector2 = new THREE.Vector2();
-    private animStartColor: THREE.Color = new THREE.Color();
-    private animTargetColor: THREE.Color = new THREE.Color();
+    public currentParallax: Vector2 = new Vector2(1, 1);
+    public currentParallaxOffset: Vector2 = new Vector2();
     private originalVisible: boolean = true;
     private animStartR = 0;
     private animStartG = 0;
@@ -130,7 +128,7 @@ class DecorationInstance {
 
     constructor(config: Partial<DecorationConfig>) {
         this.config = { ...defaultDecorationConfig, ...config };
-        this.container = new THREE.Group();
+        this.container = new Group();
         this.container.name = `decoration_${this.config.tag || 'untagged'}`;
         this.currentScale.set(this.config.scale[0] / 100, this.config.scale[1] / 100);
         this.currentRotation = this.config.rotation + this.config.rotationOffset;
@@ -149,25 +147,19 @@ class DecorationInstance {
             && !c.lockRotation && !c.lockScale;
     }
 
-    private formatHex(hex: string): string {
-        // Strip alpha channel if present (#RRGGBBAA → #RRGGBB)
-        const raw = hex.replace(/^#/, '');
-        return '#' + raw.slice(0, 6);
-    }
-
-    public setupVisual(texture: THREE.Texture | null): void {
+    public setupVisual(texture: Texture | null): void {
         this.clearVisual();
         if (this.config.decorationType === DecorationType.Object) return;
         if (!texture) {
-            const g = new THREE.PlaneGeometry(1, 1);
-            const m = new THREE.MeshBasicMaterial({ color: 0xff00ff, transparent: true, opacity: 0.5, side: THREE.DoubleSide });
-            this.mesh = new THREE.Mesh(g, m);
+            const g = new PlaneGeometry(1, 1);
+            const m = new MeshBasicMaterial({ color: 0xff00ff, transparent: true, opacity: 0.5, side: DoubleSide });
+            this.mesh = new Mesh(g, m);
             this.container.add(this.mesh);
         } else {
-            const mat = new THREE.SpriteMaterial({
+            const mat = new SpriteMaterial({
                 map: texture, color: 0xffffff, transparent: true, opacity: this.currentOpacity
             });
-            this.sprite = new THREE.Sprite(mat);
+            this.sprite = new Sprite(mat);
             let ar = 1;
             if (texture.image?.width && texture.image?.height) ar = texture.image.width / texture.image.height;
             ar >= 1
@@ -180,10 +172,10 @@ class DecorationInstance {
     }
 
     private clearVisual(): void {
-        if (this.mesh) { this.container.remove(this.mesh); this.mesh.geometry.dispose(); (this.mesh.material as THREE.Material).dispose(); this.mesh = null; }
-        if (this.sprite) { this.container.remove(this.sprite); (this.sprite.material as THREE.Material).dispose(); this.sprite = null; }
+        if (this.mesh) { this.container.remove(this.mesh); this.mesh.geometry.dispose(); (this.mesh.material as Material).dispose(); this.mesh = null; }
+        if (this.sprite) { this.container.remove(this.sprite); (this.sprite.material as Material).dispose(); this.sprite = null; }
         if (this.objectGroup) { this.container.remove(this.objectGroup); this.objectGroup = null; }
-        if (this.iconSprite) { (this.iconSprite.material as THREE.Material).dispose(); this.iconSprite = null; }
+        if (this.iconSprite) { (this.iconSprite.material as Material).dispose(); this.iconSprite = null; }
     }
 
     public updateTransform(): void {
@@ -194,12 +186,12 @@ class DecorationInstance {
         else if (d === 0) { z = 0.15; ro = 50; }
         else { z = -0.5 - d * 0.5; ro = -d * 10; }
         this.container.position.set(this.currentPosition.x, this.currentPosition.y, z);
-        if (this.mesh) { this.mesh.renderOrder = ro; (this.mesh.material as THREE.MeshBasicMaterial).color.copy(this.currentColor); (this.mesh.material as THREE.MeshBasicMaterial).opacity = this.currentOpacity; }
-        if (this.sprite) { this.sprite.renderOrder = ro; (this.sprite.material as THREE.SpriteMaterial).opacity = this.currentOpacity; }
-        if (this.iconSprite) { this.iconSprite.renderOrder = ro + 1; (this.iconSprite.material as THREE.SpriteMaterial).opacity = this.currentOpacity; }
+        if (this.mesh) { this.mesh.renderOrder = ro; (this.mesh.material as MeshBasicMaterial).color.copy(this.currentColor); (this.mesh.material as MeshBasicMaterial).opacity = this.currentOpacity; }
+        if (this.sprite) { this.sprite.renderOrder = ro; (this.sprite.material as SpriteMaterial).opacity = this.currentOpacity; }
+        if (this.iconSprite) { this.iconSprite.renderOrder = ro + 1; (this.iconSprite.material as SpriteMaterial).opacity = this.currentOpacity; }
     }
 
-    public updatePosition(camPos: THREE.Vector3, camRot: number, camZoom: number): void {
+    public updatePosition(camPos: Vector3, camRot: number, camZoom: number): void {
         if (this._isStaticWorld) {
             const px = camPos.x - this.pivotPos.x;
             const py = camPos.y - this.pivotPos.y;
@@ -346,8 +338,8 @@ class DecorationInstance {
 }
 
 export class DecorationManager {
-    private scene: THREE.Scene;
-    private container: THREE.Group;
+    private scene: Scene;
+    private container: Group;
     private levelData: any;
     private tileStartTimes: number[];
     private tileBPM: number[];
@@ -358,25 +350,24 @@ export class DecorationManager {
     private lastDecorationEventIndex: number = -1;
     private pendingDecorationEvents: any[] = [];
     private tileSize: number = 1.0;
-    private textureLoader: THREE.TextureLoader;
-    private textureCache: Map<string, THREE.Texture> = new Map();
+    private textureLoader: TextureLoader;
+    private textureCache: Map<string, Texture> = new Map();
     private floorGeoCache: Map<string, { positions: Float32Array; indices: Uint32Array; mask: Float32Array; vertexCount: number }> = new Map();
     private customImages: Map<string, string> = new Map();
     private texturesLoading: Set<string> = new Set();
     private texturesLoaded: Set<string> = new Set();
-    private placeholderTexture: THREE.Texture | null = null;
+    private placeholderTexture: Texture | null = null;
     private _lastCamX = 0; private _lastCamY = 0; private _lastCamZoom = 0;
-    private _animatingList: DecorationInstance[] = [];
 
-    constructor(scene: THREE.Scene, levelData: any, tileStartTimes: number[], tileBPM: number[]) {
+    constructor(scene: Scene, levelData: any, tileStartTimes: number[], tileBPM: number[]) {
         this.scene = scene;
         this.levelData = levelData;
         this.tileStartTimes = tileStartTimes;
         this.tileBPM = tileBPM;
-        this.container = new THREE.Group();
+        this.container = new Group();
         this.container.name = 'DecorationContainer';
         this.scene.add(this.container);
-        this.textureLoader = new THREE.TextureLoader();
+        this.textureLoader = new TextureLoader();
     }
 
     public init(): void {
@@ -408,10 +399,10 @@ export class DecorationManager {
         return deco;
     }
 
-    private computeStartPos(position: [number, number], relativeTo: DecPlacementType, floor?: number): THREE.Vector2 {
+    private computeStartPos(position: [number, number], relativeTo: DecPlacementType, floor?: number): Vector2 {
         const tiles = this.levelData.tiles;
         const ts = this.tileSize;
-        let pos = new THREE.Vector2(position[0] * ts, position[1] * ts);
+        let pos = new Vector2(position[0] * ts, position[1] * ts);
         if (relativeTo === DecPlacementType.Tile && floor !== undefined && tiles?.[floor]?.position) {
             const tp = tiles[floor].position;
             pos.x += tp[0]; pos.y += tp[1];
@@ -507,23 +498,23 @@ export class DecorationManager {
         lines.forEach((l: string, i: number) => {
             ctx.fillText(l, 512, startY + i * lineH);
         });
-        const texture = new THREE.CanvasTexture(canvas);
+        const texture = new CanvasTexture(canvas);
         deco.setupVisual(texture);
         return true;
     }
 
     private setupObjectVisual(deco: DecorationInstance, event: any): boolean {
-        const g = new THREE.Group();
+        const g = new Group();
         const objType = event.objectType || 'Planet';
         if (objType === 'Planet') {
             const [pColor, pAlpha] = parseDecoColor(event.planetColor, 'ffffff');
-            const mat = new THREE.MeshBasicMaterial({ color: new THREE.Color(pColor), transparent: true, opacity: pAlpha });
-            const sphere = new THREE.Mesh(new THREE.CircleGeometry(0.4, 32), mat);
+            const mat = new MeshBasicMaterial({ color: new Color(pColor), transparent: true, opacity: pAlpha });
+            const sphere = new Mesh(new CircleGeometry(0.4, 32), mat);
             g.add(sphere);
             if (event.planetTailColor) {
                 const [tColor, tAlpha] = parseDecoColor(event.planetTailColor, 'ffffff');
-                const tailMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(tColor), transparent: true, opacity: tAlpha * 0.5 });
-                const tail = new THREE.Mesh(new THREE.RingGeometry(0.35, 0.5, 32), tailMat);
+                const tailMat = new MeshBasicMaterial({ color: new Color(tColor), transparent: true, opacity: tAlpha * 0.5 });
+                const tail = new Mesh(new RingGeometry(0.35, 0.5, 32), tailMat);
                 g.add(tail);
             }
         } else if (objType === 'Floor') {
@@ -538,24 +529,23 @@ export class DecorationManager {
                 const meshData = isMidspin
                     ? createTrackMesh(-180, 0, true, undefined, undefined, undefined, trackStyle)
                     : createTrackMesh(angle0, angle1, false, undefined, undefined, undefined, trackStyle);
-                if (!meshData || !meshData.faces || meshData.faces.length === 0) { tpl = null; }
-                else {
+                if (meshData && meshData.faces && meshData.faces.length > 0) {
                     tpl = {
                         positions: new Float32Array(meshData.vertices),
                         indices: new Uint32Array(meshData.faces),
                         mask: new Float32Array(meshData.colors),
                         vertexCount: meshData.vertices.length / 3
                     };
+                    this.floorGeoCache.set(geoKey, tpl);
                 }
-                this.floorGeoCache.set(geoKey, tpl);
             }
             const trackOpacity = event.trackOpacity !== undefined ? event.trackOpacity / 100 : 1;
             if (tpl) {
-                const geometry = new THREE.BufferGeometry();
-                geometry.setIndex(new THREE.BufferAttribute(tpl.indices, 1));
-                geometry.setAttribute('position', new THREE.BufferAttribute(tpl.positions, 3));
+                const geometry = new BufferGeometry();
+                geometry.setIndex(new BufferAttribute(tpl.indices, 1));
+                geometry.setAttribute('position', new BufferAttribute(tpl.positions, 3));
                 const colorArray = new Float32Array(tpl.vertexCount * 3);
-                geometry.setAttribute('color', new THREE.BufferAttribute(colorArray, 3));
+                geometry.setAttribute('color', new BufferAttribute(colorArray, 3));
                 geometry.computeVertexNormals();
 
                 const trackColor = event.trackColor;
@@ -580,8 +570,8 @@ export class DecorationManager {
                     }
                 }
 
-                const mat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: trackOpacity < 1, opacity: trackOpacity, side: THREE.DoubleSide });
-                const tileMesh = new THREE.Mesh(geometry, mat);
+                const mat = new MeshBasicMaterial({ vertexColors: true, transparent: trackOpacity < 1, opacity: trackOpacity, side: DoubleSide });
+                const tileMesh = new Mesh(geometry, mat);
                 g.add(tileMesh);
             }
 
@@ -600,7 +590,7 @@ export class DecorationManager {
                             const p = tiles[floorIdx];
                             const n = tiles[floorIdx + 1];
                             const exitAngle = Math.atan2(n.position[1] - p.position[1], n.position[0] - p.position[0]);
-                            (sprite.material as THREE.SpriteMaterial).rotation = exitAngle - Math.PI / 3;
+                            (sprite.material as SpriteMaterial).rotation = exitAngle - Math.PI / 3;
                         }
                     }
                     g.add(sprite);
@@ -608,8 +598,8 @@ export class DecorationManager {
                 }
             }
         } else if (objType === 'PlayerBubble') {
-            const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.3 });
-            const bubble = new THREE.Mesh(new THREE.CircleGeometry(0.3, 16), mat);
+            const mat = new MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.3 });
+            const bubble = new Mesh(new CircleGeometry(0.3, 16), mat);
             g.add(bubble);
         }
         deco.objectGroup = g;
@@ -624,7 +614,7 @@ export class DecorationManager {
         if (url && !this.texturesLoading.has(filename)) {
             this.texturesLoading.add(filename);
             this.textureLoader.load(url, (tex) => {
-                tex.colorSpace = THREE.SRGBColorSpace;
+                tex.colorSpace = SRGBColorSpace;
                 this.textureCache.set(filename, tex);
                 this.texturesLoaded.add(filename);
                 this.texturesLoading.delete(filename);
@@ -748,7 +738,7 @@ export class DecorationManager {
                 if (!url) { resolve(); return; }
                 this.texturesLoading.add(fn);
                 this.textureLoader.load(url, (tex) => {
-                    tex.colorSpace = THREE.SRGBColorSpace;
+                    tex.colorSpace = SRGBColorSpace;
                     this.textureCache.set(fn, tex);
                     this.texturesLoaded.add(fn);
                     this.texturesLoading.delete(fn);
@@ -767,7 +757,7 @@ export class DecorationManager {
         return this.texturesLoaded.size;
     }
 
-    public update(elapsedTime: number, cameraPosition: THREE.Vector3, cameraRotation: number, cameraZoom: number): void {
+    public update(elapsedTime: number, cameraPosition: Vector3, cameraRotation: number, cameraZoom: number): void {
         const now = elapsedTime / 1000;
         this.processEvents(now);
         const camX = cameraPosition.x;
@@ -939,7 +929,7 @@ export class DecorationManager {
     private rebuildFloorIcon(deco: DecorationInstance): void {
         if (deco.iconSprite && deco.objectGroup) {
             deco.objectGroup.remove(deco.iconSprite);
-            (deco.iconSprite.material as THREE.Material).dispose();
+            (deco.iconSprite.material as Material).dispose();
             deco.iconSprite = null;
         }
         const trackIcon = deco.config.trackIcon;
@@ -956,7 +946,7 @@ export class DecorationManager {
                     const p = tiles[floorIdx];
                     const n = tiles[floorIdx + 1];
                     const exitAngle = Math.atan2(n.position[1] - p.position[1], n.position[0] - p.position[0]);
-                    (sprite.material as THREE.SpriteMaterial).rotation = exitAngle - Math.PI / 3;
+                    (sprite.material as SpriteMaterial).rotation = exitAngle - Math.PI / 3;
                 }
             }
             deco.objectGroup.add(sprite);

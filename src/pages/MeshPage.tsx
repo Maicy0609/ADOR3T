@@ -1,7 +1,7 @@
 "use client"
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import * as THREE from 'three'
+import { Color, Scene, PerspectiveCamera, WebGLRenderer, Mesh, AmbientLight, DirectionalLight, GridHelper, BufferGeometry, BufferAttribute, MeshStandardMaterial, DoubleSide } from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import createTrackMesh from '@/lib/Geo/mesh_reserve'
 import { ArrowLeft } from 'lucide-react'
@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
 const Z_OFFSET = 0.001
 
 function hexToRgb(hex: string) {
-  const c = new THREE.Color(hex)
+  const c = new Color(hex)
   return { r: c.r, g: c.g, b: c.b }
 }
 
@@ -42,11 +42,11 @@ export default function MeshPage() {
   const navigate = useNavigate()
   const containerRef = useRef<HTMLDivElement>(null)
   const sceneRef = useRef<{
-    scene: THREE.Scene
-    camera: THREE.PerspectiveCamera
-    renderer: THREE.WebGLRenderer
+    scene: Scene
+    camera: PerspectiveCamera
+    renderer: WebGLRenderer
     controls: OrbitControls
-    mesh: THREE.Mesh | null
+    mesh: Mesh | null
   } | null>(null)
   const animRef = useRef(0)
 
@@ -67,13 +67,13 @@ export default function MeshPage() {
     const w = container.clientWidth
     const h = container.clientHeight
 
-    const scene = new THREE.Scene()
-    scene.background = new THREE.Color(0x0f0f13)
+    const scene = new Scene()
+    scene.background = new Color(0x0f0f13)
 
-    const camera = new THREE.PerspectiveCamera(42, w / h, 0.01, 10)
+    const camera = new PerspectiveCamera(42, w / h, 0.01, 10)
     camera.position.set(1.2, 0.9, 1.8)
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    const renderer = new WebGLRenderer({ antialias: true })
     renderer.setSize(w, h)
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     renderer.sortObjects = true
@@ -87,20 +87,20 @@ export default function MeshPage() {
     controls.target.set(0, 0, 0)
     controls.update()
 
-    const ambient = new THREE.AmbientLight(0xffffff, 0.6)
+    const ambient = new AmbientLight(0xffffff, 0.6)
     scene.add(ambient)
-    const dirLight = new THREE.DirectionalLight(0xffffff, 1.2)
+    const dirLight = new DirectionalLight(0xffffff, 1.2)
     dirLight.position.set(2, 3, 4)
     scene.add(dirLight)
-    const backLight = new THREE.DirectionalLight(0x8888ff, 0.4)
+    const backLight = new DirectionalLight(0x8888ff, 0.4)
     backLight.position.set(-2, -1, -3)
     scene.add(backLight)
 
-    const gridHelper = new THREE.GridHelper(2.0, 16, 0x7a7aff55, 0x7a7aff22)
+    const gridHelper = new GridHelper(2.0, 16, 0x7a7aff55, 0x7a7aff22)
     gridHelper.position.z = -0.01
     scene.add(gridHelper)
 
-    const state = { scene, camera, renderer, controls, mesh: null as THREE.Mesh | null }
+    const state = { scene, camera, renderer, controls, mesh: null as Mesh | null }
     sceneRef.current = state
 
     const animate = () => {
@@ -143,23 +143,23 @@ export default function MeshPage() {
     const newColors = recolorVertices(data.colors, userColor, 0.20)
     const zVertices = applyOutlineZ(data.vertices, newColors, Z_OFFSET)
 
-    const geometry = new THREE.BufferGeometry()
-    geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(zVertices), 3))
-    geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(newColors), 3))
-    geometry.setIndex(new THREE.BufferAttribute(new Uint16Array(data.faces), 1))
+    const geometry = new BufferGeometry()
+    geometry.setAttribute('position', new BufferAttribute(new Float32Array(zVertices), 3))
+    geometry.setAttribute('color', new BufferAttribute(new Float32Array(newColors), 3))
+    geometry.setIndex(new BufferAttribute(new Uint16Array(data.faces), 1))
     geometry.computeVertexNormals()
 
-    const material = new THREE.MeshStandardMaterial({
+    const material = new MeshStandardMaterial({
       vertexColors: true,
       transparent: true,
       opacity,
       roughness: 0.35,
       metalness: 0.05,
-      side: THREE.DoubleSide,
+      side: DoubleSide,
       depthWrite: true,
     })
 
-    const mesh = new THREE.Mesh(geometry, material)
+    const mesh = new Mesh(geometry, material)
 
     if (state.mesh) {
       state.scene.remove(state.mesh)

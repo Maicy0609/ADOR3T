@@ -1,24 +1,24 @@
-import * as THREE from 'three';
+import { Mesh, Vector3, Color, SphereGeometry, MeshBasicMaterial, Scene, Material } from 'three';
 import { IPlanet } from './types';
 import { PlanetTrail } from './PlanetTrail';
 
 export class Planet implements IPlanet {
-  public mesh: THREE.Mesh;
-  public position: THREE.Vector3 = new THREE.Vector3();
-  public radius: number = 0.25; // Doubled radius as requested (0.25 fit enough)
-  public color: THREE.Color;
+  public mesh: Mesh;
+  public position: Vector3 = new Vector3();
+  public radius: number = 0.25;
+  public color: Color;
   public rotation: number = 0;
   
   public trail: PlanetTrail | null = null;
   private showTrail: boolean = false;
   
-  constructor(color: number | string | THREE.Color, initialPosition?: THREE.Vector3, showTrail: boolean = false) {
-    this.color = new THREE.Color(color);
+  constructor(color: number | string | Color, initialPosition?: Vector3, showTrail: boolean = false) {
+    this.color = new Color(color);
     this.showTrail = showTrail;
     
-    const geometry = new THREE.SphereGeometry(this.radius, 32, 32);
-    const material = new THREE.MeshBasicMaterial({ color: this.color });
-    this.mesh = new THREE.Mesh(geometry, material);
+    const geometry = new SphereGeometry(this.radius, 32, 32);
+    const material = new MeshBasicMaterial({ color: this.color });
+    this.mesh = new Mesh(geometry, material);
     this.mesh.renderOrder = 110; // Set higher than tiles (0) and trail (100)
     
     if (initialPosition) {
@@ -40,7 +40,7 @@ export class Planet implements IPlanet {
     if (this.trail) this.trail.setPoints(xy);
   }
 
-  render(scene: THREE.Scene): void {
+  render(scene: Scene): void {
     if (!scene.children.includes(this.mesh)) {
       scene.add(this.mesh);
     }
@@ -49,7 +49,7 @@ export class Planet implements IPlanet {
     }
   }
 
-  removeFromScene(scene: THREE.Scene): void {
+  removeFromScene(scene: Scene): void {
     if (scene.children.includes(this.mesh)) {
       scene.remove(this.mesh);
     }
@@ -61,7 +61,7 @@ export class Planet implements IPlanet {
   setRadius(r: number): void {
     this.radius = r;
     this.mesh.geometry.dispose();
-    this.mesh.geometry = new THREE.SphereGeometry(r, 32, 32);
+    this.mesh.geometry = new SphereGeometry(r, 32, 32);
     if (this.trail) {
       this.trail.setPlanetRadius(r);
     }
@@ -73,7 +73,7 @@ export class Planet implements IPlanet {
     }
   }
 
-  moveTo(target: THREE.Vector3): void {
+  moveTo(target: Vector3): void {
     this.position.copy(target);
     this.mesh.position.copy(target);
   }
@@ -84,7 +84,7 @@ export class Planet implements IPlanet {
       if (Array.isArray(this.mesh.material)) {
         this.mesh.material.forEach(m => m.dispose());
       } else {
-        (this.mesh.material as THREE.Material).dispose();
+        (this.mesh.material as Material).dispose();
       }
     }
     if (this.trail) {

@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import { Vector3, Euler, Color, InstancedMesh, Object3D, Scene, BufferGeometry, ShaderMaterial, DoubleSide, DynamicDrawUsage, InstancedBufferAttribute, Matrix4, Texture, Material } from 'three';
 
 import instancedVert from '../shaders/instanced.vert'
 import instancedFrag from '../shaders/instanced.frag'
@@ -9,11 +9,11 @@ import instancedFrag from '../shaders/instanced.frag'
 interface TileInstance {
     index: number;
     shapeKey: string;
-    position: THREE.Vector3;
-    rotation: THREE.Euler;
-    scale: THREE.Vector3;
-    color: THREE.Color;
-    bgColor: THREE.Color;
+    position: Vector3;
+    rotation: Euler;
+    scale: Vector3;
+    color: Color;
+    bgColor: Color;
     opacity: number;
     texSeed: number;
     visible: boolean;
@@ -24,8 +24,8 @@ interface TileInstance {
  */
 interface ShapeInstancedMesh {
     shapeKey: string;
-    instancedMesh: THREE.InstancedMesh;
-    dummy: THREE.Object3D;
+    instancedMesh: InstancedMesh;
+    dummy: Object3D;
     instances: Map<number, number>; // tileIndex -> instanceIndex
     maxInstances: number;
     instanceCount: number;
@@ -37,25 +37,25 @@ interface ShapeInstancedMesh {
  * Optimizes performance by rendering many tiles with the same geometry in a single draw call
  */
 export class InstancedMeshManager {
-    private scene: THREE.Scene;
-    private geometryCache: Map<string, THREE.BufferGeometry>;
+    private scene: Scene;
+    private geometryCache: Map<string, BufferGeometry>;
     private instancedMeshes: Map<string, ShapeInstancedMesh>;
     private tileInstances: Map<number, TileInstance>;
-    private onGeometryNeeded: (shapeKey: string) => THREE.BufferGeometry | null;
+    private onGeometryNeeded: (shapeKey: string) => BufferGeometry | null;
     private maxCacheSize: number = 100;
     private useInstancedMesh: boolean = true;
-    private tileTexture: THREE.Texture | null = null;
+    private tileTexture: Texture | null = null;
     private texScale: number = 0.6;
 
     /**
      * Set the tile texture overlay and tiling scale
      */
-    public setTileTexture(texture: THREE.Texture | null, scale: number = 6): void {
+    public setTileTexture(texture: Texture | null, scale: number = 6): void {
         this.tileTexture = texture;
         this.texScale = scale;
         // Update uniform on all existing instanced meshes
         for (const shapeData of this.instancedMeshes.values()) {
-            const mat = shapeData.instancedMesh.material as THREE.ShaderMaterial;
+            const mat = shapeData.instancedMesh.material as ShaderMaterial;
             if (mat.uniforms) {
                 mat.uniforms.uTileTexture.value = texture;
                 mat.uniforms.uTexScale.value = scale;
@@ -64,8 +64,8 @@ export class InstancedMeshManager {
     }
 
     constructor(
-        scene: THREE.Scene,
-        onGeometryNeeded: (shapeKey: string) => THREE.BufferGeometry | null,
+        scene: Scene,
+        onGeometryNeeded: (shapeKey: string) => BufferGeometry | null,
         useInstancedMesh: boolean = true
     ) {
         this.scene = scene;
@@ -84,7 +84,7 @@ export class InstancedMeshManager {
         if (!geometry) return undefined;
 
         // Create a basic shader material that supports instance colors
-        const material = new THREE.ShaderMaterial({
+        const material = new ShaderMaterial({
             uniforms: {
                 uTileTexture: { value: this.tileTexture },
                 uTexScale: { value: this.texScale }
@@ -92,7 +92,7 @@ export class InstancedMeshManager {
             vertexShader: instancedVert,
             fragmentShader: instancedFrag,
             vertexColors: true,
-            side: THREE.DoubleSide,
+            side: DoubleSide,
             transparent: true,
             depthTest: true,
             // depthWrite: false — prevents transparent tiles from occluding tiles behind them.
@@ -101,26 +101,26 @@ export class InstancedMeshManager {
             depthWrite: true
         });
 
-        const instancedMesh = new THREE.InstancedMesh(geometry, material, maxInstances);
-        instancedMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        const instancedMesh = new InstancedMesh(geometry, material, maxInstances);
+        instancedMesh.instanceMatrix.setUsage(DynamicDrawUsage);
         instancedMesh.renderOrder = 0; // Standard tile level
         instancedMesh.frustumCulled = false; // Prevent tiles from disappearing when camera moves
         instancedMesh.count = 0; // Start with 0 visible instances
 
         // Create instance color attributes
-        const iColor = new THREE.InstancedBufferAttribute(
+        const iColor = new InstancedBufferAttribute(
             new Float32Array(maxInstances * 3),
             3
         );
-        const iBgColor = new THREE.InstancedBufferAttribute(
+        const iBgColor = new InstancedBufferAttribute(
             new Float32Array(maxInstances * 3),
             3
         );
-        const iOpacity = new THREE.InstancedBufferAttribute(
+        const iOpacity = new InstancedBufferAttribute(
             new Float32Array(maxInstances),
             1
         );
-        const iTexSeed = new THREE.InstancedBufferAttribute(
+        const iTexSeed = new InstancedBufferAttribute(
             new Float32Array(maxInstances),
             1
         );
@@ -132,7 +132,7 @@ export class InstancedMeshManager {
 
         instancedMesh.instanceMatrix.needsUpdate = true;
 
-        const dummy = new THREE.Object3D();
+        const dummy = new Object3D();
 
         const shapeData: ShapeInstancedMesh = {
             shapeKey,
@@ -156,9 +156,9 @@ export class InstancedMeshManager {
     public updateTile(
         tileIndex: number,
         shapeKey: string,
-        position: THREE.Vector3,
-        rotation: THREE.Euler,
-        scale: THREE.Vector3,
+        position: Vector3,
+        rotation: Euler,
+        scale: Vector3,
         color: string,
         bgColor: string,
         opacity: number = 1,
@@ -188,10 +188,10 @@ export class InstancedMeshManager {
             index: tileIndex,
             shapeKey,
             position: position.clone(),
-            rotation: rotation.clone() as THREE.Euler,
+            rotation: rotation.clone() as Euler,
             scale: scale.clone(),
-            color: new THREE.Color(color),
-            bgColor: new THREE.Color(bgColor),
+            color: new Color(color),
+            bgColor: new Color(bgColor),
             opacity,
             texSeed,
             visible
@@ -242,15 +242,15 @@ export class InstancedMeshManager {
             // Shift instances at positions >= insertAt up by 1
             if (count > 0 && insertAt < count) {
                 for (let i = count - 1; i >= insertAt; i--) {
-                    const mat = new THREE.Matrix4();
+                    const mat = new Matrix4();
                     instancedMesh.getMatrixAt(i, mat);
                     instancedMesh.setMatrixAt(i + 1, mat);
                 }
 
-                const iColor = instancedMesh.geometry.attributes.iColor! as THREE.InstancedBufferAttribute;
-                const iBgColor = instancedMesh.geometry.attributes.iBgColor! as THREE.InstancedBufferAttribute;
-                const iOpacity = instancedMesh.geometry.attributes.iOpacity! as THREE.InstancedBufferAttribute;
-                const iTexSeed = instancedMesh.geometry.attributes.iTexSeed! as THREE.InstancedBufferAttribute;
+                const iColor = instancedMesh.geometry.attributes.iColor! as InstancedBufferAttribute;
+                const iBgColor = instancedMesh.geometry.attributes.iBgColor! as InstancedBufferAttribute;
+                const iOpacity = instancedMesh.geometry.attributes.iOpacity! as InstancedBufferAttribute;
+                const iTexSeed = instancedMesh.geometry.attributes.iTexSeed! as InstancedBufferAttribute;
 
                 for (let i = count - 1; i >= insertAt; i--) {
                     iColor.setXYZ(i + 1, iColor.getX(i), iColor.getY(i), iColor.getZ(i));
@@ -302,8 +302,8 @@ export class InstancedMeshManager {
         instancedMesh.setMatrixAt(instanceIndex, dummy.matrix);
 
         // Update instance colors
-        const color3 = new THREE.Color(color);
-        const bgColor3 = new THREE.Color(bgColor);
+        const color3 = new Color(color);
+        const bgColor3 = new Color(bgColor);
 
         instancedMesh.geometry.attributes.iColor!.setXYZ(
             instanceIndex,
@@ -333,9 +333,9 @@ export class InstancedMeshManager {
      */
     public updateTileTransform(
         tileIndex: number,
-        position: THREE.Vector3,
-        rotation: THREE.Euler,
-        scale: THREE.Vector3,
+        position: Vector3,
+        rotation: Euler,
+        scale: Vector3,
         opacity?: number
     ): void {
         const instance = this.tileInstances.get(tileIndex);
@@ -396,8 +396,8 @@ export class InstancedMeshManager {
         if (!instance) return;
 
         // Dirty check — parse incoming colors and compare with stored
-        const newColor = new THREE.Color(color);
-        const newBgColor = new THREE.Color(bgColor);
+        const newColor = new Color(color);
+        const newBgColor = new Color(bgColor);
         const colorChanged = !instance.color.equals(newColor);
         const bgColorChanged = !instance.bgColor.equals(newBgColor);
 
@@ -452,33 +452,33 @@ export class InstancedMeshManager {
             ? oldMesh.material.map(m => m.clone())
             : oldMesh.material.clone();
 
-        const newMesh = new THREE.InstancedMesh(geometry, material, newMax);
-        newMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        const newMesh = new InstancedMesh(geometry, material, newMax);
+        newMesh.instanceMatrix.setUsage(DynamicDrawUsage);
         newMesh.frustumCulled = false;
         newMesh.count = shapeData.instanceCount;
         newMesh.renderOrder = oldMesh.renderOrder;
 
         // Copy instance attributes
-        const iColor = new THREE.InstancedBufferAttribute(
+        const iColor = new InstancedBufferAttribute(
             new Float32Array(newMax * 3),
             3
         );
-        const iBgColor = new THREE.InstancedBufferAttribute(
+        const iBgColor = new InstancedBufferAttribute(
             new Float32Array(newMax * 3),
             3
         );
-        const iOpacity = new THREE.InstancedBufferAttribute(
+        const iOpacity = new InstancedBufferAttribute(
             new Float32Array(newMax),
             1
         );
-        const iTexSeed = new THREE.InstancedBufferAttribute(
+        const iTexSeed = new InstancedBufferAttribute(
             new Float32Array(newMax),
             1
         );
 
         // Copy old data
         for (let i = 0; i < oldMax; i++) {
-            const matrix = new THREE.Matrix4();
+            const matrix = new Matrix4();
             oldMesh.getMatrixAt(i, matrix);
             newMesh.setMatrixAt(i, matrix);
 
@@ -629,7 +629,7 @@ export class InstancedMeshManager {
         for (const shapeData of this.instancedMeshes.values()) {
             this.scene.remove(shapeData.instancedMesh);
             shapeData.instancedMesh.geometry.dispose();
-            if (shapeData.instancedMesh.material instanceof THREE.Material) {
+            if (shapeData.instancedMesh.material instanceof Material) {
                 shapeData.instancedMesh.material.dispose();
             }
             shapeData.instances.clear();

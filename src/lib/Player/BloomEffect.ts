@@ -8,7 +8,7 @@
  * 3. Combine pass - blend bloom with original, apply color tint here
  */
 
-import * as THREE from 'three';
+import { Color, Vector2, WebGLRenderTarget, ShaderMaterial, Scene, OrthographicCamera, PlaneGeometry, Mesh, WebGLRenderer, Texture, LinearFilter, RGBAFormat } from 'three';
 
 import brightVert from '../shaders/pass.vert'
 import brightFrag from '../shaders/brightness.frag'
@@ -24,51 +24,51 @@ export class BloomEffect {
     private enabled: boolean = false;
     private threshold: number = 0.5;
     private intensity: number = 0.7;  // Reduced to 70% of original strength
-    private bloomColor: THREE.Color = new THREE.Color(1, 1, 1);
+    private bloomColor: Color = new Color(1, 1, 1);
     private quality: number = 1;
 
-    private resolution: THREE.Vector2;
+    private resolution: Vector2;
 
     // Render targets
-    private rtBrightness: THREE.WebGLRenderTarget;
-    private rtBlurH: THREE.WebGLRenderTarget;
-    private rtBlurV: THREE.WebGLRenderTarget;
+    private rtBrightness: WebGLRenderTarget;
+    private rtBlurH: WebGLRenderTarget;
+    private rtBlurV: WebGLRenderTarget;
 
     // Materials
-    private brightnessMaterial: THREE.ShaderMaterial;
-    private blurMaterial: THREE.ShaderMaterial;
-    private combineMaterial: THREE.ShaderMaterial;
+    private brightnessMaterial: ShaderMaterial;
+    private blurMaterial: ShaderMaterial;
+    private combineMaterial: ShaderMaterial;
 
     // Full-screen quad
-    private fsQuad: THREE.Mesh;
-    private scene: THREE.Scene;
-    private camera: THREE.OrthographicCamera;
+    private fsQuad: Mesh;
+    private scene: Scene;
+    private camera: OrthographicCamera;
 
     constructor() {
-        this.resolution = new THREE.Vector2(512, 512);
+        this.resolution = new Vector2(512, 512);
 
         const width = 256;
         const height = 256;
 
-        this.rtBrightness = new THREE.WebGLRenderTarget(width, height, {
-            minFilter: THREE.LinearFilter,
-            magFilter: THREE.LinearFilter,
-            format: THREE.RGBAFormat,
+        this.rtBrightness = new WebGLRenderTarget(width, height, {
+            minFilter: LinearFilter,
+            magFilter: LinearFilter,
+            format: RGBAFormat,
         });
 
-        this.rtBlurH = new THREE.WebGLRenderTarget(width, height, {
-            minFilter: THREE.LinearFilter,
-            magFilter: THREE.LinearFilter,
-            format: THREE.RGBAFormat,
+        this.rtBlurH = new WebGLRenderTarget(width, height, {
+            minFilter: LinearFilter,
+            magFilter: LinearFilter,
+            format: RGBAFormat,
         });
 
-        this.rtBlurV = new THREE.WebGLRenderTarget(width, height, {
-            minFilter: THREE.LinearFilter,
-            magFilter: THREE.LinearFilter,
-            format: THREE.RGBAFormat,
+        this.rtBlurV = new WebGLRenderTarget(width, height, {
+            minFilter: LinearFilter,
+            magFilter: LinearFilter,
+            format: RGBAFormat,
         });
 
-        this.brightnessMaterial = new THREE.ShaderMaterial({
+        this.brightnessMaterial = new ShaderMaterial({
             uniforms: {
                 tDiffuse: { value: null },
                 threshold: { value: 0.5 },
@@ -77,23 +77,23 @@ export class BloomEffect {
             fragmentShader: brightFrag,
         });
 
-        this.blurMaterial = new THREE.ShaderMaterial({
+        this.blurMaterial = new ShaderMaterial({
             uniforms: {
                 tDiffuse: { value: null },
-                direction: { value: new THREE.Vector2(1, 0) },
-                resolution: { value: new THREE.Vector2(1, 1) },
+                direction: { value: new Vector2(1, 0) },
+                resolution: { value: new Vector2(1, 1) },
                 quality: { value: 1 },
             },
             vertexShader: blurVert,
             fragmentShader: blurFrag,
         });
 
-        this.combineMaterial = new THREE.ShaderMaterial({
+        this.combineMaterial = new ShaderMaterial({
             uniforms: {
                 tDiffuse: { value: null },
                 tBloom: { value: null },
                 intensity: { value: 1.0 },
-                bloomColor: { value: new THREE.Color(1, 1, 1) },
+                bloomColor: { value: new Color(1, 1, 1) },
             },
             vertexShader: combineVert,
             fragmentShader: combineFrag,
@@ -102,11 +102,11 @@ export class BloomEffect {
         // Initialize intensity uniform to 0.7 (70% of original strength)
         this.combineMaterial.uniforms.intensity.value = 0.7;
 
-        this.scene = new THREE.Scene();
-        this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+        this.scene = new Scene();
+        this.camera = new OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
-        const geometry = new THREE.PlaneGeometry(2, 2);
-        this.fsQuad = new THREE.Mesh(geometry, this.brightnessMaterial);
+        const geometry = new PlaneGeometry(2, 2);
+        this.fsQuad = new Mesh(geometry, this.brightnessMaterial);
         this.scene.add(this.fsQuad);
     }
 
@@ -151,7 +151,7 @@ export class BloomEffect {
             hex = hex.slice(0, 6);
         }
 
-        // Now create proper hex format for THREE.Color
+        // Now create proper hex format for Color
         const normalizedHex = `#${hex}`;
         this.bloomColor.set(normalizedHex);
         // Apply color in combine shader (like Unity's _Param1)
@@ -182,7 +182,7 @@ export class BloomEffect {
         this.blurMaterial.uniforms.resolution.value.set(w, h);
     }
 
-    render(renderer: THREE.WebGLRenderer, sourceTexture: THREE.Texture, targetRenderTarget: THREE.WebGLRenderTarget | null = null): void {
+    render(renderer: WebGLRenderer, sourceTexture: Texture, targetRenderTarget: WebGLRenderTarget | null = null): void {
         if (!this.enabled) {
             return;
         }
@@ -219,7 +219,7 @@ export class BloomEffect {
         renderer.autoClear = oldAutoClear;
     }
 
-    getBloomTexture(): THREE.Texture {
+    getBloomTexture(): Texture {
         return this.rtBlurV.texture;
     }
 

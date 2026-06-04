@@ -1,20 +1,20 @@
-import * as THREE from 'three';
+import { TextureLoader, Texture, SRGBColorSpace, SpriteMaterial, Sprite } from 'three';
 
-import endUrl from '@/assets/events/End.png';
-import speedPlusUrl from '@/assets/events/Speed+.png';
-import speedMinusUrl from '@/assets/events/Speed-.png';
-import twirlB1Url from '@/assets/events/TwirlB1.png';
-import twirlB1NegUrl from '@/assets/events/TwirlB-1.png';
-import twirlR1Url from '@/assets/events/TwirlR1.png';
-import twirlR1NegUrl from '@/assets/events/TwirlR-1.png';
+import endUrl from '@/assets/events/End.json';
+import speedPlusUrl from '@/assets/events/Speed+.json';
+import speedMinusUrl from '@/assets/events/Speed-.json';
+import twirlB1Url from '@/assets/events/TwirlB1.json';
+import twirlB1NegUrl from '@/assets/events/TwirlB-1.json';
+import twirlR1Url from '@/assets/events/TwirlR1.json';
+import twirlR1NegUrl from '@/assets/events/TwirlR-1.json';
 
-const loader = new THREE.TextureLoader();
+const loader = new TextureLoader();
 
-const texCache = new Map<string, THREE.Texture>();
+const texCache = new Map<string, Texture>();
 
-function load(key: string, url: string): THREE.Texture {
+function load(key: string, url: string): Texture {
     const tex = loader.load(url);
-    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.colorSpace = SRGBColorSpace;
     texCache.set(key, tex);
     return tex;
 }
@@ -29,7 +29,7 @@ const _tr1n = () => load('TwirlR-1', twirlR1NegUrl);
 
 export type IconType = 'End' | 'Speed+' | 'Speed-' | 'TwirlB1' | 'TwirlB-1' | 'TwirlR1' | 'TwirlR-1';
 
-export function getIconTexture(type: IconType): THREE.Texture {
+export function getIconTexture(type: IconType): Texture {
     switch (type) {
         case 'End': return _e();
         case 'Speed+': return _sp();
@@ -63,20 +63,20 @@ export function getIconTextureForCustomFloor(trackIcon: string): IconType | null
 }
 
 export interface IconSpriteOptions {
-    texture: THREE.Texture;
+    texture: Texture;
     opacity?: number;
     scale?: number;
 }
 
-export function createIconSprite(tex: THREE.Texture, opacity = 1, size = 0.22): THREE.Sprite {
-    const mat = new THREE.SpriteMaterial({
+export function createIconSprite(tex: Texture, opacity = 1, size = 0.22): Sprite {
+    const mat = new SpriteMaterial({
         map: tex,
         transparent: true,
         opacity,
         depthTest: true,
         depthWrite: false,
     });
-    const sprite = new THREE.Sprite(mat);
+    const sprite = new Sprite(mat);
     sprite.scale.set(size, size, 1);
     sprite.center.set(0.5, 0.5);
     return sprite;

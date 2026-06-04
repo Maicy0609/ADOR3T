@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import { Vector3, Euler, Mesh, Vector2, ShaderMaterial } from 'three';
 import { getEasingFunction } from './WasmEasing';
 import { debugLog } from './DebugLog';
 import { isEventActive, isFieldEnabled } from './EventUtils';
@@ -15,6 +15,14 @@ interface AnimationProperty {
 
 interface TileAnimationState {
     animations: Map<string, AnimationProperty>;
+}
+
+interface AxisAnim {
+    sv: number;
+    ev: number;
+    st: number;
+    dur: number;
+    ease: (t: number) => number;
 }
 
 interface PendingMoveTrackTarget {
@@ -42,22 +50,22 @@ export class MoveTrackManager {
     private tileAnimationStates: Map<number, TileAnimationState> = new Map();
 
     private tileInitialStates: Map<number, {
-        position: THREE.Vector3;
-        rotation: THREE.Euler;
-        scale: THREE.Vector3;
+        position: Vector3;
+        rotation: Euler;
+        scale: Vector3;
         opacity: number;
     }> = new Map();
 
-    private tiles: Map<string, THREE.Mesh> | null = null;
+    private tiles: Map<string, Mesh> | null = null;
 
-    private basePositions: THREE.Vector2[] = [];
+    private basePositions: Vector2[] = [];
     private baseRotations: number[] = [];
 
     public tileTransformChanged?: (
         tileIndex: number,
-        position: THREE.Vector3,
-        rotation: THREE.Euler,
-        scale: THREE.Vector3,
+        position: Vector3,
+        rotation: Euler,
+        scale: Vector3,
         opacity: number
     ) => void;
 
@@ -73,14 +81,14 @@ export class MoveTrackManager {
         this.tileBPM = tileBPM;
     }
 
-    public setTilesReference(tiles: Map<string, THREE.Mesh>): void {
+    public setTilesReference(tiles: Map<string, Mesh>): void {
         this.tiles = tiles;
         tiles.forEach((tileMesh, tileId) => {
             const index = parseInt(tileId);
             if (!this.tileInitialStates.has(index)) {
                 this.tileInitialStates.set(index, {
                     position: tileMesh.position.clone(),
-                    rotation: tileMesh.rotation.clone() as THREE.Euler,
+                    rotation: tileMesh.rotation.clone() as Euler,
                     scale: tileMesh.scale.clone(),
                     opacity: tileMesh.userData.opacity ?? 1
                 });
@@ -88,7 +96,7 @@ export class MoveTrackManager {
         });
     }
 
-    public setBasePositions(positions: THREE.Vector2[]): void {
+    public setBasePositions(positions: Vector2[]): void {
         this.basePositions = positions;
     }
 
@@ -96,13 +104,13 @@ export class MoveTrackManager {
         this.baseRotations = rotations;
     }
 
-    public registerTileInitial(index: number, tileMesh: THREE.Mesh): void {
+    public registerTileInitial(index: number, tileMesh: Mesh): void {
         const playLabel = `[MoveTrackManager][Play#${this.debugPlayId}]`;
         if (!this.tileInitialStates.has(index)) {
             debugLog(playLabel, `Registering initial state for tile ${index}: pos=(${tileMesh.position.x.toFixed(3)},${tileMesh.position.y.toFixed(3)}), rot=${tileMesh.rotation.z.toFixed(6)}`);
             this.tileInitialStates.set(index, {
                 position: tileMesh.position.clone(),
-                rotation: tileMesh.rotation.clone() as THREE.Euler,
+                rotation: tileMesh.rotation.clone() as Euler,
                 scale: tileMesh.scale.clone(),
                 opacity: tileMesh.userData.opacity ?? 1
             });
@@ -224,7 +232,7 @@ export class MoveTrackManager {
                     case 'rotationZ': mesh.rotation.z = value; break;
                     case 'opacity':
                         if (mesh.material) {
-                            if (mesh.material instanceof THREE.ShaderMaterial && mesh.material.uniforms.opacity) {
+                            if (mesh.material instanceof ShaderMaterial && mesh.material.uniforms.opacity) {
                                 mesh.material.uniforms.opacity.value = value;
                             } else {
                                 (mesh.material as any).opacity = value;
@@ -254,7 +262,7 @@ export class MoveTrackManager {
                 this.tileTransformChanged(
                     tileIndex,
                     mesh.position,
-                    mesh.rotation as THREE.Euler,
+                    mesh.rotation as Euler,
                     mesh.scale,
                     mesh.userData.opacity ?? 1
                 );
@@ -276,6 +284,81 @@ export class MoveTrackManager {
             y: mesh.position.y - initialState.position.y,
             rotation: mesh.rotation.z - initialState.rotation.z,
         };
+    }
+
+    /**
+     * Compute where a tile's mesh would be at an arbitrary point in time.
+     * Used by trail rendering to reconstruct historical positions when stickToFloors is on.
+     * Replays MoveTrack events up to `queryTime` and evaluates active animations.
+     */
+    public getTilePositionAtTime(tileIndex: number, queryTime: number): { x: number; y: number } | null {
+        const initialState = this.tileInitialStates.get(tileIndex);
+        if (!initialState) return null;
+
+        let x = initialState.position.x;
+        let y = initialState.position.y;
+
+        const basePosX = (tileIndex < this.basePositions.length) ? this.basePositions[tileIndex].x : x;
+        const basePosY = (tileIndex < this.basePositions.length) ? this.basePositions[tileIndex].y : y;
+
+        // Track current active animation per axis (later events overwrite — absolute model)
+        let ax: AxisAnim | null = null;
+        let ay: AxisAnim | null = null;
+
+        // Helper: evaluate running position at a given timestamp using current active anim
+        const evalAt = (t: number) => {
+            if (ax) {
+                const e = Math.min(Math.max((t - ax.st) / ax.dur, 0), 1);
+                x = ax.sv + (ax.ev - ax.sv) * ax.ease(e);
+            }
+            if (ay) {
+                const e = Math.min(Math.max((t - ay.st) / ay.dur, 0), 1);
+                y = ay.sv + (ay.ev - ay.sv) * ay.ease(e);
+            }
+        };
+
+        for (const entry of this.moveTrackEventsTimeline) {
+            if (entry.time > queryTime) break;
+
+            const event = entry.event;
+            const startTile = this.parseTileReference(event.startTile, event.floor);
+            const endTile = this.parseTileReference(event.endTile, event.floor);
+            const eStart = Math.min(startTile, endTile);
+            const eEnd = Math.max(startTile, endTile);
+            const gapLength = event.gapLength || 0;
+
+            let affectsTile = false;
+            for (let i = eStart; i <= eEnd; i += 1 + gapLength) {
+                if (i === tileIndex) { affectsTile = true; break; }
+            }
+            if (!affectsTile) continue;
+
+            const duration = event.duration ?? 1;
+            const ease = event.ease || 'Linear.easeNone';
+            const easingFunc = this.getEasingFunction(ease);
+
+            const positionUsed = event.positionOffset !== undefined && isFieldEnabled(event, 'positionOffset');
+            if (!positionUsed) continue;
+
+            const offsetX = positionUsed && event.positionOffset[0] != null ? event.positionOffset[0] : null;
+            const offsetY = positionUsed && event.positionOffset[1] != null ? event.positionOffset[1] : null;
+
+            // Evaluate running position at THIS event's start time so that
+            // the new animation starts from wherever the tile actually is.
+            evalAt(entry.time);
+
+            if (offsetX != null) {
+                ax = { sv: x, ev: basePosX + offsetX, st: entry.time, dur: duration, ease: easingFunc };
+            }
+            if (offsetY != null) {
+                ay = { sv: y, ev: basePosY + offsetY, st: entry.time, dur: duration, ease: easingFunc };
+            }
+        }
+
+        // Final evaluation at queryTime
+        evalAt(queryTime);
+
+        return { x, y };
     }
 
     private processMoveTrackEvents(timeInSeconds: number): void {
@@ -440,7 +523,7 @@ export class MoveTrackManager {
     }
 
     private animateProperty(
-        mesh: THREE.Mesh,
+        mesh: Mesh,
         property: string,
         startValue: number,
         endValue: number,
@@ -458,7 +541,7 @@ export class MoveTrackManager {
                 case 'scaleY': mesh.scale.y = endValue; break;
                 case 'opacity':
                     if (mesh.material) {
-                        if (mesh.material instanceof THREE.ShaderMaterial && mesh.material.uniforms.opacity) {
+                        if (mesh.material instanceof ShaderMaterial && mesh.material.uniforms.opacity) {
                             mesh.material.uniforms.opacity.value = endValue;
                         } else {
                             (mesh.material as any).opacity = endValue;
@@ -647,7 +730,7 @@ export class MoveTrackManager {
 
             if (this.tileTransformChanged) {
                 this.tileTransformChanged(
-                    i, tileMesh.position, tileMesh.rotation as THREE.Euler,
+                    i, tileMesh.position, tileMesh.rotation as Euler,
                     tileMesh.scale, tileMesh.userData.opacity ?? 1
                 );
             }
@@ -692,7 +775,7 @@ export class MoveTrackManager {
 
                     if (this.tileTransformChanged) {
                         this.tileTransformChanged(
-                            index, mesh.position, mesh.rotation as THREE.Euler,
+                            index, mesh.position, mesh.rotation as Euler,
                             mesh.scale, mesh.userData.opacity ?? 1
                         );
                     }

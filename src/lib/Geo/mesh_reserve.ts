@@ -1,4 +1,4 @@
-import * as THREE from 'three'
+import { Vector3 } from 'three'
 
 interface Color { r: number; g: number; b: number; }
 
@@ -155,7 +155,7 @@ const CaculatePoints = (
 
 // ========== 创建圆形 ==========
 const createCircle = (
-    center: THREE.Vector3,
+    center: Vector3,
     radius: number,
     color: Color,
     vertices: number[],
@@ -334,7 +334,7 @@ const createMidSpinMesh = (
     const faces: number[] = [];
     const colors: number[] = [];
 
-    const midpoint = new THREE.Vector3(-m1 * 0.04, -m2 * 0.04, 0);
+    const midpoint = new Vector3(-m1 * 0.04, -m2 * 0.04, 0);
 
     const blackColor: Color = { r: 0, g: 0, b: 0 };
     const whiteColor: Color = { r: 1, g: 1, b: 1 };

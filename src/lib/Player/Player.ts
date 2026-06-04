@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import { Scene, OrthographicCamera, WebGLRenderer, Mesh, Vector3, Texture, BufferGeometry, WebGLRenderTarget, Color, Vector2, DirectionalLight, Float32BufferAttribute, Euler, Material, MeshBasicMaterial, TextureLoader, SRGBColorSpace, NearestFilter, LinearFilter, PlaneGeometry, BufferAttribute, Sprite, SpriteMaterial, RepeatWrapping, LinearMipmapLinearFilter, VideoTexture, DoubleSide } from 'three';
 import {WebGPURenderer} from 'three/webgpu';
 import { IPlayer, ILevelData, IMusic, TargetFramerateType } from './types';
 import { Planet } from './Planet';
@@ -8,7 +8,7 @@ import { FlashEffect } from './FlashEffect';
 import createTrackMesh from '../Geo/mesh_reserve';
 import { EasingFunctions } from './Easing';
 import { HTMLAudioMusic, getSharedAudioContext } from './HTMLAudioMusic';
-import tileTextureUrl from '@/assets/texture.png';
+import tileTextureUrl from '@/assets/texture.json';
 import { TileColorManager, TileColorConfig, parseHexAlpha } from './TileColorManager';
 import { isEventActive } from './EventUtils';
 import { CameraController, CameraTimelineEntry } from './CameraController';
@@ -24,9 +24,9 @@ import { Level } from 'adofai';
 
 export class Player implements IPlayer {
   private container: HTMLElement | null = null;
-  private scene: THREE.Scene;
-  private camera: THREE.OrthographicCamera;
-  private renderer!: THREE.WebGLRenderer | WebGPURenderer;
+  private scene: Scene;
+  private camera: OrthographicCamera;
+  private renderer!: WebGLRenderer | WebGPURenderer;
   private rendererType: 'webgl' | 'webgpu' = 'webgpu';
   private renderMethod: 'sync' | 'async' = 'sync';
   private showTrail: boolean = false;
@@ -42,7 +42,7 @@ export class Player implements IPlayer {
   private currentPivotPosition: { x: number; y: number } = { x: 0, y: 0 };
 
   // Tile Management
-  private tiles: Map<string, THREE.Mesh> = new Map();
+  private tiles: Map<string, Mesh> = new Map();
   private visibleTiles: Set<string> = new Set();
   private tileLimit: number = 0;
 
@@ -71,7 +71,7 @@ export class Player implements IPlayer {
   // Camera settings
   private zoom: number = 1;
   private zoomMultiplier: number = 1.0;
-  private cameraPosition: THREE.Vector3 = new THREE.Vector3(0, 0, 0);
+  private cameraPosition: Vector3 = new Vector3(0, 0, 0);
   
   // Interaction state
   private isDragging: boolean = false;
@@ -116,6 +116,15 @@ export class Player implements IPlayer {
   // Each entry: {type, volume} to override the default hitsound for that tile
   private setHitsoundOverrides: Map<number, {type: HitsoundType, volume: number}> = new Map();
 
+  // Tile position history cache for trail rendering (circular buffer)
+  // Stores actual mesh positions per frame so trails can look up historical positions
+  // without replaying MoveTrack events (which is slow and error-prone)
+  private trailPositionCache: Float64Array[] = [];
+  private trailTimeCache: number[] = [];
+  private trailCacheWriteIdx: number = 0;
+  private static readonly TRAIL_CACHE_SIZE = 30; // ~0.5s at 60fps
+  private trailCacheReady: boolean = false;
+
   // Camera Controller
   private cameraController: CameraController;
   
@@ -154,22 +163,22 @@ export class Player implements IPlayer {
   // Custom Background (SetCustomBG event)
   private customBGTimeline: { time: number; event: any }[] = [];
   private lastCustomBGTimelineIndex: number = -1;
-  private customBGMesh: THREE.Mesh | null = null;
-  private customBGTexture: THREE.Texture | null = null;
+  private customBGMesh: Mesh | null = null;
+  private customBGTexture: Texture | null = null;
   private customBGImages: Map<string, string> = new Map(); // filename -> URL
   
   // Shared Renderer Resources
-  private geometryCache: Map<string, THREE.BufferGeometry> = new Map();
+  private geometryCache: Map<string, BufferGeometry> = new Map();
   private maxCachedTiles: number = 2000; // Only keep this many meshes in memory
 
   // Video Background
   private videoElement: HTMLVideoElement | null = null;
-  private videoTexture: THREE.Texture | null = null;
-  private videoMesh: THREE.Mesh | null = null;
+  private videoTexture: Texture | null = null;
+  private videoMesh: Mesh | null = null;
   private videoOffset: number = 0; // ms
 
   // Render target for post-processing
-  private renderTarget: THREE.WebGLRenderTarget | null = null;
+  private renderTarget: WebGLRenderTarget | null = null;
 
   // Renderer state
   private isRestoringContext: boolean = false;
@@ -241,7 +250,7 @@ export class Player implements IPlayer {
     this.hitsoundManager = new HitsoundManager(defaultHitsoundType, 100);
 
     // Initialize Three.js components
-    this.scene = new THREE.Scene();
+    this.scene = new Scene();
 
     // Initialize InstancedMeshManager
     this.instancedMeshManager = new InstancedMeshManager(
@@ -255,7 +264,7 @@ export class Player implements IPlayer {
     
     // Set background color from level settings
     const bgColor = this.levelData.settings?.backgroundColor || '000000';
-    this.scene.background = new THREE.Color(this.formatHexColor(bgColor));
+    this.scene.background = new Color(this.formatHexColor(bgColor));
     
     // Initialize video settings
     this.videoOffset = this.levelData.settings?.vidOffset || 0;
@@ -317,8 +326,8 @@ export class Player implements IPlayer {
 
     // Pass precomputed tile positions/rotations as base for MoveTrack computation.
     // Needed because tiles may not exist yet when early MoveTrack events fire.
-    const basePositions: THREE.Vector2[] = this.levelData.tiles.map((t: any) =>
-        new THREE.Vector2(t.position[0], t.position[1])
+    const basePositions: Vector2[] = this.levelData.tiles.map((t: any) =>
+        new Vector2(t.position[0], t.position[1])
     );
     this.moveTrackManager.setBasePositions(basePositions);
 
@@ -341,12 +350,12 @@ export class Player implements IPlayer {
     };
 
     // Add lights
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0);
+    const directionalLight = new DirectionalLight(0xffffff, 1.0);
     directionalLight.position.set(10, 10, 15);
     this.scene.add(directionalLight);
     
     // Default camera setup - will be updated on resize/init
-    this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 1000);
+    this.camera = new OrthographicCamera(-1, 1, 1, -1, 0.1, 1000);
     this.camera.position.z = 10;
     this.scene.add(this.camera);
     
@@ -383,7 +392,7 @@ export class Player implements IPlayer {
   /**
    * Helper for InstancedMeshManager to generate geometry
    */
-  private generateGeometryFromShapeKey(shapeKey: string): THREE.BufferGeometry | null {
+  private generateGeometryFromShapeKey(shapeKey: string): BufferGeometry | null {
     const parts = shapeKey.split('_');
     if (parts.length < 4) return null;
 
@@ -395,10 +404,10 @@ export class Player implements IPlayer {
     const meshData = createTrackMesh(pred, currentDirection, is999, undefined, undefined, undefined, trackStyle);
     if (!meshData || !meshData.faces) return null;
 
-    const geometry = new THREE.BufferGeometry();
+    const geometry = new BufferGeometry();
     geometry.setIndex(meshData.faces);
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(meshData.vertices, 3));
-    geometry.setAttribute('color', new THREE.Float32BufferAttribute(meshData.colors, 3));
+    geometry.setAttribute('position', new Float32BufferAttribute(meshData.vertices, 3));
+    geometry.setAttribute('color', new Float32BufferAttribute(meshData.colors, 3));
     geometry.computeVertexNormals();
     return geometry;
   }
@@ -838,7 +847,7 @@ export class Player implements IPlayer {
       }
       
       try {
-        this.renderer = new THREE.WebGLRenderer({ 
+        this.renderer = new WebGLRenderer({ 
           alpha: true, 
           antialias: true,
           powerPreference: 'high-performance',
@@ -849,7 +858,7 @@ export class Player implements IPlayer {
         console.error('Failed to create WebGL renderer:', e);
         // Try with minimal settings
         try {
-          this.renderer = new THREE.WebGLRenderer({ 
+          this.renderer = new WebGLRenderer({ 
             alpha: false, 
             antialias: false,
           });
@@ -1393,7 +1402,7 @@ export class Player implements IPlayer {
         this.instancedMeshManager!.updateTileTransform(
             index,
             mesh.position,
-            mesh.rotation as THREE.Euler,
+            mesh.rotation as Euler,
             mesh.scale,
             effectiveOpacity
         );
@@ -1437,8 +1446,80 @@ export class Player implements IPlayer {
 
     // Mark tiles animated by MoveTrack as dirty for instanced mesh sync
     for (const idx of this.moveTrackManager.getAnimatedTileIndices()) {
-        this.dirtyTiles.add(idx);
+      this.dirtyTiles.add(idx);
     }
+
+    // Record tile positions into trail cache (circular buffer)
+    this.recordTrailCache(timeInLevel);
+  }
+
+  private initTrailCache(): void {
+    const n = this.levelData.tiles.length;
+    this.trailPositionCache = [];
+    this.trailTimeCache = [];
+    for (let i = 0; i < Player.TRAIL_CACHE_SIZE; i++) {
+      this.trailPositionCache.push(new Float64Array(n * 2));
+      this.trailTimeCache.push(-999);
+    }
+    this.trailCacheWriteIdx = 0;
+    this.trailCacheReady = false;
+  }
+
+  private recordTrailCache(timeInLevel: number): void {
+    if (this.trailPositionCache.length === 0) this.initTrailCache();
+
+    const entry = this.trailPositionCache[this.trailCacheWriteIdx];
+    const tiles = this.levelData.tiles;
+    const n = tiles.length;
+
+    for (let i = 0; i < n; i++) {
+      if (this.tileStickToFloors[i] !== false) {
+        const mesh = this.tiles.get(i.toString());
+        if (mesh) {
+          entry[i * 2] = mesh.position.x;
+          entry[i * 2 + 1] = mesh.position.y;
+        } else {
+          entry[i * 2] = tiles[i].position[0];
+          entry[i * 2 + 1] = tiles[i].position[1];
+        }
+      } else {
+        entry[i * 2] = tiles[i].position[0];
+        entry[i * 2 + 1] = tiles[i].position[1];
+      }
+    }
+
+    this.trailTimeCache[this.trailCacheWriteIdx] = timeInLevel;
+    this.trailCacheWriteIdx = (this.trailCacheWriteIdx + 1) % Player.TRAIL_CACHE_SIZE;
+    if (!this.trailCacheReady && this.trailCacheWriteIdx === 0) {
+      this.trailCacheReady = true;
+    }
+  }
+
+  /**
+   * Look up a tile's cached position at the given timeInLevel.
+   * Returns null if time is outside cached range.
+   */
+  private getCachedTilePos(tileIndex: number, queryTime: number): { x: number; y: number } | null {
+    if (!this.trailCacheReady || this.trailTimeCache.length === 0) return null;
+
+    // Find closest cached frame via binary search on time
+    let bestIdx = -1;
+    let bestDiff = Infinity;
+
+    for (let i = 0; i < Player.TRAIL_CACHE_SIZE; i++) {
+      const t = this.trailTimeCache[i];
+      if (t < -900) continue; // unwritten slot
+      const diff = Math.abs(t - queryTime);
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        bestIdx = i;
+      }
+    }
+
+    if (bestIdx < 0 || bestDiff > 0.02) return null; // >20ms away, too inaccurate
+
+    const entry = this.trailPositionCache[bestIdx];
+    return { x: entry[tileIndex * 2], y: entry[tileIndex * 2 + 1] };
   }
 
   private updateAnimatedTiles(): void {
@@ -1494,7 +1575,7 @@ export class Player implements IPlayer {
         
         if (this.bloomEnabled && !isWebGPU && this.bloomEffect && this.bloomEffect.getEnabled()) {
           if (!this.renderTarget) {
-            this.renderTarget = new THREE.WebGLRenderTarget(
+            this.renderTarget = new WebGLRenderTarget(
               this.container?.clientWidth || window.innerWidth,
               this.container?.clientHeight || window.innerHeight
             );
@@ -1504,7 +1585,7 @@ export class Player implements IPlayer {
           this.renderer.render(this.scene, this.camera);
           this.renderer.setRenderTarget(null);
           
-          this.bloomEffect.render(this.renderer as THREE.WebGLRenderer, this.renderTarget.texture);
+          this.bloomEffect.render(this.renderer as WebGLRenderer, this.renderTarget.texture);
         } else {
           if (this.renderMethod === 'async' || isWebGPU) {
             (this.renderer as any).renderAsync(this.scene, this.camera).catch((e: Error) => {
@@ -1517,7 +1598,7 @@ export class Player implements IPlayer {
         
         // Render Flash effect (overlay on top of scene)
         if (this.flashEffect && this.flashEffect.isActive()) {
-          this.flashEffect.renderFlash(this.renderer as THREE.WebGLRenderer, this.elapsedTime / 1000);
+          this.flashEffect.renderFlash(this.renderer as WebGLRenderer, this.elapsedTime / 1000);
         }
       } catch (e) {
         console.warn('Render error:', e);
@@ -1713,7 +1794,7 @@ export class Player implements IPlayer {
       // Update background color
       if (event.color !== undefined) {
           const bgColor = this.formatHexColor(event.color);
-          this.scene.background = new THREE.Color(bgColor);
+          this.scene.background = new Color(bgColor);
       }
       
       // Update custom background image
@@ -1724,7 +1805,7 @@ export class Player implements IPlayer {
           if (this.customBGMesh) {
               this.scene.remove(this.customBGMesh);
               if (this.customBGMesh.geometry) this.customBGMesh.geometry.dispose();
-              if (this.customBGMesh.material instanceof THREE.Material) {
+              if (this.customBGMesh.material instanceof Material) {
                   this.customBGMesh.material.dispose();
               }
               this.customBGMesh = null;
@@ -1750,19 +1831,19 @@ export class Player implements IPlayer {
       if (this.customBGMesh) {
           this.scene.remove(this.customBGMesh);
           if (this.customBGMesh.geometry) this.customBGMesh.geometry.dispose();
-          if (this.customBGMesh.material instanceof THREE.Material) {
+          if (this.customBGMesh.material instanceof Material) {
               this.customBGMesh.material.dispose();
           }
       }
       
       // Load new texture
-      const loader = new THREE.TextureLoader();
+      const loader = new TextureLoader();
       loader.load(imageUrl, (texture) => {
-          texture.colorSpace = THREE.SRGBColorSpace;
+          texture.colorSpace = SRGBColorSpace;
           
           // Apply smoothing setting
-          texture.minFilter = event.imageSmoothing === false ? THREE.NearestFilter : THREE.LinearFilter;
-          texture.magFilter = event.imageSmoothing === false ? THREE.NearestFilter : THREE.LinearFilter;
+          texture.minFilter = event.imageSmoothing === false ? NearestFilter : LinearFilter;
+          texture.magFilter = event.imageSmoothing === false ? NearestFilter : LinearFilter;
           
           this.customBGTexture = texture;
           
@@ -1788,13 +1869,13 @@ export class Player implements IPlayer {
           }
           
           // Create mesh
-          const geometry = new THREE.PlaneGeometry(meshWidth, meshHeight);
+          const geometry = new PlaneGeometry(meshWidth, meshHeight);
           
           // Apply image color tint
           const imageColor = event.imageColor ? this.formatHexColor(event.imageColor) : '#ffffff';
-          const color = new THREE.Color(imageColor);
+          const color = new Color(imageColor);
           
-          const material = new THREE.MeshBasicMaterial({
+          const material = new MeshBasicMaterial({
               map: texture,
               color: color,
               transparent: true,
@@ -1802,7 +1883,7 @@ export class Player implements IPlayer {
               depthTest: false
           });
           
-          this.customBGMesh = new THREE.Mesh(geometry, material);
+          this.customBGMesh = new Mesh(geometry, material);
           this.customBGMesh.renderOrder = -1000; // Render before everything
           this.scene.add(this.customBGMesh);
           
@@ -2097,7 +2178,7 @@ export class Player implements IPlayer {
 
                 this.instancedMeshManager.updateTile(
                     i, newShapeKey,
-                    tileMesh.position, tileMesh.rotation as THREE.Euler, tileMesh.scale,
+                    tileMesh.position, tileMesh.rotation as Euler, tileMesh.scale,
                     rendered.color, rendered.bgcolor, rendered.opacity, true, texSeed
                 );
             }
@@ -2126,11 +2207,11 @@ export class Player implements IPlayer {
     const colors = this.tileColorManager.getTileColor(index);
     
     if (colors) {
-        if (mesh && mesh.material instanceof THREE.MeshBasicMaterial && mesh.geometry.userData?.colorMask) {
-            const colorAttr = mesh.geometry.getAttribute('color') as THREE.BufferAttribute;
-            const maskAttr = mesh.geometry.userData.colorMask as THREE.BufferAttribute;
-            const cFill = new THREE.Color(colors.color);
-            const cBorder = new THREE.Color(colors.secondaryColor || colors.color);
+        if (mesh && mesh.material instanceof MeshBasicMaterial && mesh.geometry.userData?.colorMask) {
+            const colorAttr = mesh.geometry.getAttribute('color') as BufferAttribute;
+            const maskAttr = mesh.geometry.userData.colorMask as BufferAttribute;
+            const cFill = new Color(colors.color);
+            const cBorder = new Color(colors.secondaryColor || colors.color);
             const arr = colorAttr.array;
             const mask = maskAttr.array;
             for (let i = 0; i < arr.length; i += 3) {
@@ -2163,7 +2244,7 @@ export class Player implements IPlayer {
                 this.instancedMeshManager.updateTileTransform(
                     index,
                     mesh.position,
-                    mesh.rotation as THREE.Euler,
+                    mesh.rotation as Euler,
                     mesh.scale,
                     effectiveOpacity
                 );
@@ -2172,11 +2253,11 @@ export class Player implements IPlayer {
     }
   }
 
-  private updateTileChildSpriteRotations(mesh: THREE.Mesh, cameraRotation: number = 0): void {
+  private updateTileChildSpriteRotations(mesh: Mesh, cameraRotation: number = 0): void {
     const tileZ = mesh.rotation.z;
     mesh.children.forEach(child => {
-        if (child instanceof THREE.Sprite && child.userData.baseRotation !== undefined) {
-            (child.material as THREE.SpriteMaterial).rotation = child.userData.baseRotation + tileZ - cameraRotation;
+        if (child instanceof Sprite && child.userData.baseRotation !== undefined) {
+            (child.material as SpriteMaterial).rotation = child.userData.baseRotation + tileZ - cameraRotation;
         }
     });
   }
@@ -2333,13 +2414,43 @@ export class Player implements IPlayer {
 
     let px: number, py: number, mx: number, my: number;
 
+    // Helper: get stick-aware position at a specific time (for trail history)
+    // Uses frame cache (accurate, from real mesh positions), falls back to
+    // MoveTrack event replay for times outside cache range.
+    const getStickPos = (ti: number, t: number): { x: number; y: number } | null => {
+      if (this.tileStickToFloors[ti] === false) return null;
+      // Try cache first (fast + accurate)
+      const cached = this.getCachedTilePos(ti, t);
+      if (cached) return cached;
+      // Fallback: event replay (for times before cache was ready)
+      if (this.moveTrackManager) {
+        return this.moveTrackManager.getTilePositionAtTime(ti, t);
+      }
+      return null;
+    };
+
     if (tileIndex >= n - 1) {
       // Last tile: pivot planet stays at tile center, moving planet orbits freely
       const lastP = tiles[n - 1];
-      px = lastP.position[0]; py = lastP.position[1];
+      const stickPos = getStickPos(tileIndex, timeInLevel);
+
+      if (stickPos) {
+        px = stickPos.x; py = stickPos.y;
+      } else {
+        px = lastP.position[0]; py = lastP.position[1];
+      }
+
       if (n - 1 > 0) {
-        const prev = tiles[n - 2];
-        const startAngle = Math.atan2(prev.position[1] - py, prev.position[0] - px);
+        const prevStickPos = getStickPos(n - 2, timeInLevel);
+        let prevPx: number, prevPy: number;
+        if (prevStickPos) {
+          prevPx = prevStickPos.x; prevPy = prevStickPos.y;
+        } else {
+          const prev = tiles[n - 2];
+          prevPx = prev.position[0]; prevPy = prev.position[1];
+        }
+
+        const startAngle = Math.atan2(prevPy - py, prevPx - px);
         const extraTime = timeInLevel - (this.tileStartTimes[n - 1] || 0);
         const bpm = this.tileBPM[n - 1] || 100;
         const totalAngle = extraTime * (bpm / 60) * Math.PI;
@@ -2350,15 +2461,54 @@ export class Player implements IPlayer {
         mx = px + 1; my = py;
       }
     } else {
-      const tp = tiles[tileIndex];
-      px = tp.position[0]; py = tp.position[1];
+      const stickPos = getStickPos(tileIndex, timeInLevel);
+      const useStick = !!stickPos;
+      if (stickPos) {
+        px = stickPos.x; py = stickPos.y;
+      } else {
+        const tp = tiles[tileIndex];
+        px = tp.position[0]; py = tp.position[1];
+      }
+
       const st = this.tileStartTimes[tileIndex];
       const dur = this.tileDurations[tileIndex];
       const rawProgress = dur > 0.0001 ? (timeInLevel - st) / dur : 1;
       const clampedProgress = Math.max(0, Math.min(1, rawProgress));
-      const ca = this.tileStartAngle[tileIndex] + this.tileTotalAngle[tileIndex] * rawProgress;
-      const sd = this.tileStartDist[tileIndex];
-      const cd = sd + (this.tileEndDist[tileIndex] - sd) * clampedProgress;
+
+      // When stickToFloors is on, use cached neighbor positions so the trail
+      // matches the main planet's live-trajectory behavior.
+      let ca: number;
+      let sd: number;
+      let cd: number;
+
+      if (useStick) {
+        const prevStick = tileIndex > 0 ? getStickPos(tileIndex - 1, timeInLevel) : null;
+        const nextStick = tileIndex + 1 < n ? getStickPos(tileIndex + 1, timeInLevel) : null;
+
+        if (prevStick && tileIndex > 0) {
+          const pdx = prevStick.x - px;
+          const pdy = prevStick.y - py;
+          ca = Math.atan2(pdy, pdx);
+          sd = Math.sqrt(pdx * pdx + pdy * pdy);
+        } else {
+          ca = this.tileStartAngle[tileIndex];
+          sd = this.tileStartDist[tileIndex];
+        }
+
+        if (nextStick) {
+          const ndx = nextStick.x - px;
+          const ndy = nextStick.y - py;
+          cd = sd + (Math.sqrt(ndx * ndx + ndy * ndy) - sd) * clampedProgress;
+        } else {
+          cd = sd + (this.tileEndDist[tileIndex] - sd) * clampedProgress;
+        }
+        ca += this.tileTotalAngle[tileIndex] * rawProgress;
+      } else {
+        ca = this.tileStartAngle[tileIndex] + this.tileTotalAngle[tileIndex] * rawProgress;
+        sd = this.tileStartDist[tileIndex];
+        cd = sd + (this.tileEndDist[tileIndex] - sd) * clampedProgress;
+      }
+
       mx = px + Math.cos(ca) * cd;
       my = py + Math.sin(ca) * cd;
     }
@@ -2459,7 +2609,7 @@ export class Player implements IPlayer {
     };
   }
 
-  private lastVisibleCheckPos = new THREE.Vector3(Infinity, Infinity, Infinity);
+  private lastVisibleCheckPos = new Vector3(Infinity, Infinity, Infinity);
   private lastVisibleCheckZoom = -1;
 
   private updateVisibleTiles(): void {
@@ -2556,7 +2706,7 @@ export class Player implements IPlayer {
             if (this.instancedMeshManager) {
                 this.instancedMeshManager.removeTile(parseInt(id));
             }
-            if (mesh.material instanceof THREE.Material) {
+            if (mesh.material instanceof Material) {
                 mesh.material.dispose();
             }
             this.tiles.delete(id);
@@ -2565,7 +2715,7 @@ export class Player implements IPlayer {
     }
   }
 
-  private getOrCreateTileMesh(index: number): THREE.Mesh | null {
+  private getOrCreateTileMesh(index: number): Mesh | null {
     const id = index.toString();
     if (this.tiles.has(id)) return this.tiles.get(id)!;
 
@@ -2598,10 +2748,10 @@ export class Player implements IPlayer {
       const meshData = createTrackMesh(pred, currentDirection, is999, undefined, undefined, undefined, trackStyle);
       if (!meshData || !meshData.faces) return null;
 
-      geometry = new THREE.BufferGeometry();
+      geometry = new BufferGeometry();
       geometry.setIndex(meshData.faces);
-      geometry.setAttribute('position', new THREE.Float32BufferAttribute(meshData.vertices, 3));
-      geometry.setAttribute('color', new THREE.Float32BufferAttribute(meshData.colors, 3));
+      geometry.setAttribute('position', new Float32BufferAttribute(meshData.vertices, 3));
+      geometry.setAttribute('color', new Float32BufferAttribute(meshData.colors, 3));
       geometry.computeVertexNormals();
       this.geometryCache.set(shapeKey, geometry);
     }
@@ -2612,10 +2762,10 @@ export class Player implements IPlayer {
 
     // Clone geometry and bake actual vertex colors from the mask
     const tileGeo = geometry.clone();
-    const sharedColorAttr = geometry.getAttribute('color') as THREE.BufferAttribute;
-    const colorAttr = tileGeo.getAttribute('color') as THREE.BufferAttribute;
-    const cFill = new THREE.Color(color);
-    const cBorder = new THREE.Color(bgcolor);
+    const sharedColorAttr = geometry.getAttribute('color') as BufferAttribute;
+    const colorAttr = tileGeo.getAttribute('color') as BufferAttribute;
+    const cFill = new Color(color);
+    const cBorder = new Color(bgcolor);
     const colorArray = colorAttr.array;
     const maskArray = sharedColorAttr.array;
 
@@ -2635,19 +2785,19 @@ export class Player implements IPlayer {
     // Store mask reference for future color updates
     tileGeo.userData.colorMask = sharedColorAttr;
 
-    const material = new THREE.MeshBasicMaterial({
+    const material = new MeshBasicMaterial({
         vertexColors: true,
-        side: THREE.DoubleSide,
+        side: DoubleSide,
         transparent: true,
         depthWrite: false
     });
 
-    const tileMesh = new THREE.Mesh(tileGeo, material);
+    const tileMesh = new Mesh(tileGeo, material);
 
     // Calculate transform from PositionTrack
-    let finalPos = new THREE.Vector3(x, y, 0);
-    let finalRot = new THREE.Euler(0, 0, 0);
-    let finalScale = new THREE.Vector3(1, 1, 1);
+    let finalPos = new Vector3(x, y, 0);
+    let finalRot = new Euler(0, 0, 0);
+    let finalScale = new Vector3(1, 1, 1);
     let finalOpacity = 1;
 
     if (this.positionTrackManager) {
@@ -2745,7 +2895,7 @@ export class Player implements IPlayer {
             const r = dir === 1
                 ? exitAngle - Math.PI / 3
                 : exitAngle - Math.PI / 6;
-            (sprite.material as THREE.SpriteMaterial).rotation = r;
+            (sprite.material as SpriteMaterial).rotation = r;
             sprite.userData.baseRotation = r;
         }
         tileMesh.add(sprite);
@@ -2898,13 +3048,13 @@ export class Player implements IPlayer {
         const tileData = this.levelData.tiles[tileIndex];
         const useStickToFloor = this.tileStickToFloors[tileIndex] !== false;
         
-        let pivotPos: THREE.Vector3;
+        let pivotPos: Vector3;
         if (useStickToFloor && tileMesh) {
             // Use actual tile mesh position (may have been moved by PositionTrack/MoveTrack)
             pivotPos = tileMesh.position.clone();
         } else {
             // Use original tile position (planet doesn't follow tile movement)
-            pivotPos = new THREE.Vector3(tileData.position[0], tileData.position[1], tileMesh ? tileMesh.position.z : 0);
+            pivotPos = new Vector3(tileData.position[0], tileData.position[1], tileMesh ? tileMesh.position.z : 0);
         }
 
         this.currentPivotPosition.x = pivotPos.x;
@@ -2913,17 +3063,49 @@ export class Player implements IPlayer {
         // Pivot planet uses the selected position
         pivotPlanet.position.set(pivotPos.x, pivotPos.y, 1.0);
 
+        // When stickToFloors is enabled, use live mesh positions for the full trajectory
+        // so the ball correctly arrives at each tile's actual (possibly moved) position.
+        // The pivot follows the current tile, and startDist/endDist adapt to neighbors.
         const startTime = this.tileStartTimes[tileIndex];
         const duration = this.tileDurations[tileIndex];
         const progress = duration > 0.0001 ? (timeInLevel - startTime) / duration : 1;
 
-        const startAngle = this.tileStartAngle[tileIndex];
+        let startAngle: number;
+        let startDist: number;
+        let endDist: number;
+
+        if (useStickToFloor) {
+            const prevMesh = tileIndex > 0 ? this.tiles.get((tileIndex - 1).toString()) : null;
+            const nextMesh = tileIndex + 1 < this.levelData.tiles.length
+                ? this.tiles.get((tileIndex + 1).toString()) : null;
+
+            if (prevMesh && tileIndex > 0) {
+                const pdx = prevMesh.position.x - pivotPos.x;
+                const pdy = prevMesh.position.y - pivotPos.y;
+                startAngle = Math.atan2(pdy, pdx);
+                startDist = Math.sqrt(pdx * pdx + pdy * pdy);
+            } else {
+                startAngle = this.tileStartAngle[tileIndex];
+                startDist = this.tileStartDist[tileIndex];
+            }
+
+            if (nextMesh) {
+                const ndx = nextMesh.position.x - pivotPos.x;
+                const ndy = nextMesh.position.y - pivotPos.y;
+                endDist = Math.sqrt(ndx * ndx + ndy * ndy);
+            } else {
+                endDist = this.tileEndDist[tileIndex];
+            }
+        } else {
+            startAngle = this.tileStartAngle[tileIndex];
+            startDist = this.tileStartDist[tileIndex];
+            endDist = this.tileEndDist[tileIndex];
+        }
+
         const totalAngle = this.tileTotalAngle[tileIndex];
         const currentAngle = startAngle + totalAngle * progress;
 
         const clampedProgress = Math.max(0, Math.min(1, progress));
-        const startDist = this.tileStartDist[tileIndex];
-        const endDist = this.tileEndDist[tileIndex];
         const currentDist = startDist + (endDist - startDist) * clampedProgress;
 
         // Calculate planet position relative to selected pivot position
@@ -3038,8 +3220,8 @@ export class Player implements IPlayer {
       this.camera.position.y = this.cameraPosition.y;
       
       // Zoom: ADOFAI zoom 100 = normal view, 200 = 2x zoomed out
-      // THREE.js OrthographicCamera: zoom = 1 is normal, zoom > 1 is zoomed in
-      // So: THREE.zoom = 100 / ADOFAI.zoom
+      // js OrthographicCamera: zoom = 1 is normal, zoom > 1 is zoomed in
+      // So: zoom = 100 / ADOFAI.zoom
       this.zoom = 100 / interpolated.zoom;
       this.camera.zoom = this.zoom * this.zoomMultiplier;
       this.camera.updateProjectionMatrix();
@@ -3082,13 +3264,13 @@ export class Player implements IPlayer {
   }
 
   private loadTileTexture(): void {
-    const loader = new THREE.TextureLoader();
+    const loader = new TextureLoader();
     const texture = loader.load(tileTextureUrl);
-    texture.wrapS = THREE.RepeatWrapping;
-    texture.wrapT = THREE.RepeatWrapping;
-    texture.minFilter = THREE.LinearMipmapLinearFilter;
-    texture.magFilter = THREE.LinearFilter;
-    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.wrapS = RepeatWrapping;
+    texture.wrapT = RepeatWrapping;
+    texture.minFilter = LinearMipmapLinearFilter;
+    texture.magFilter = LinearFilter;
+    texture.colorSpace = SRGBColorSpace;
     if (this.instancedMeshManager) {
       this.instancedMeshManager.setTileTexture(texture, 0.6);
     }
@@ -3110,7 +3292,7 @@ export class Player implements IPlayer {
     if (this.videoMesh) {
         this.scene.remove(this.videoMesh);
         if (this.videoMesh.geometry) this.videoMesh.geometry.dispose();
-        if (this.videoMesh.material instanceof THREE.Material) {
+        if (this.videoMesh.material instanceof Material) {
             this.videoMesh.material.dispose();
         }
         this.videoMesh = null;
@@ -3126,26 +3308,26 @@ export class Player implements IPlayer {
 
     this.videoElement = video;
 
-    // Use THREE.VideoTexture directly bound to the <video> element.
+    // Use VideoTexture directly bound to the <video> element.
     // This eliminates the intermediate canvas + ctx.drawImage() CPU overhead,
     // letting the GPU sample directly from decoded video frames (hardware-accelerated).
     // The old canvas-downsampling approach caused stuttering because drawImage()
     // with downscaling is a synchronous CPU-bound operation that blocks the main thread.
-    const videoTex = new THREE.VideoTexture(video);
-    videoTex.colorSpace = THREE.SRGBColorSpace;
-    videoTex.minFilter = THREE.LinearFilter;
-    videoTex.magFilter = THREE.LinearFilter;
+    const videoTex = new VideoTexture(video);
+    videoTex.colorSpace = SRGBColorSpace;
+    videoTex.minFilter = LinearFilter;
+    videoTex.magFilter = LinearFilter;
     videoTex.generateMipmaps = false;
     this.videoTexture = videoTex;
 
-    const geometry = new THREE.PlaneGeometry(1, 1);
-    const material = new THREE.MeshBasicMaterial({
+    const geometry = new PlaneGeometry(1, 1);
+    const material = new MeshBasicMaterial({
         map: this.videoTexture,
         depthWrite: false,
         depthTest: true,
         transparent: false
     });
-    this.videoMesh = new THREE.Mesh(geometry, material);
+    this.videoMesh = new Mesh(geometry, material);
     this.videoMesh.position.set(0, 0, -500);
     this.videoMesh.renderOrder = -999;
     this.scene.add(this.videoMesh);
@@ -3233,7 +3415,7 @@ export class Player implements IPlayer {
     const angleData = this.levelData.angleData || [];
     
     // Start from (0, 0)
-    let currentPos = new THREE.Vector2(0, 0);
+    let currentPos = new Vector2(0, 0);
     
     // Pre-calculate all angles
     const floats = new Array(tiles.length);
@@ -3277,7 +3459,7 @@ export class Player implements IPlayer {
     if (this.videoMesh) {
         this.scene.remove(this.videoMesh);
         if (this.videoMesh.geometry) this.videoMesh.geometry.dispose();
-        if (this.videoMesh.material instanceof THREE.Material) {
+        if (this.videoMesh.material instanceof Material) {
             this.videoMesh.material.dispose();
         }
         this.videoMesh = null;
@@ -3297,7 +3479,7 @@ export class Player implements IPlayer {
 
     // Cleanup Three.js resources
     this.tiles.forEach(mesh => {
-        if (mesh.material instanceof THREE.Material) {
+        if (mesh.material instanceof Material) {
             mesh.material.dispose();
         }
         mesh.children.length = 0;

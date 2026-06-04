@@ -80,7 +80,7 @@ export function useEditorState() {
 
     // Create new Player
     if (containerRef.current) {
-      const player = new Player(loadedLevel as ILevelData)
+      const player = new Player(loadedLevel)
       player.createPlayer(containerRef.current)
       player.setRenderer(settings.renderer)
       player.setRenderMethod(settings.renderMethod)
@@ -300,7 +300,7 @@ export function useEditorState() {
           }
 
           if (containerRef.current) {
-            const player = new Player(loadedLevel as ILevelData)
+            const player = new Player(loadedLevel)
             player.createPlayer(containerRef.current)
             player.setRenderer(settings.renderer)
             player.setRenderMethod(settings.renderMethod)

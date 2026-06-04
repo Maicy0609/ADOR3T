@@ -7,7 +7,7 @@
  * BG flash renders first, then FG flash on top.
  */
 
-import * as THREE from 'three';
+import { Color, Mesh, MeshBasicMaterial, Scene, OrthographicCamera, PlaneGeometry, WebGLRenderer } from 'three';
 import { EasingFunctions } from './Easing';
 
 /**
@@ -17,8 +17,8 @@ interface FlashTransition {
     active: boolean;
     startTime: number;
     duration: number;
-    startColor: THREE.Color;
-    endColor: THREE.Color;
+    startColor: Color;
+    endColor: Color;
     startOpacity: number;
     endOpacity: number;
     ease: string;
@@ -36,12 +36,12 @@ export class FlashEffect {
     private bgTransition: FlashTransition;
     
     // Full-screen quads for rendering flash overlay
-    private fgQuad: THREE.Mesh;
-    private bgQuad: THREE.Mesh;
-    private fgMaterial: THREE.MeshBasicMaterial;
-    private bgMaterial: THREE.MeshBasicMaterial;
-    private scene: THREE.Scene;
-    private camera: THREE.OrthographicCamera;
+    private fgQuad: Mesh;
+    private bgQuad: Mesh;
+    private fgMaterial: MeshBasicMaterial;
+    private bgMaterial: MeshBasicMaterial;
+    private scene: Scene;
+    private camera: OrthographicCamera;
     
     constructor() {
         // Initialize FG transition
@@ -49,8 +49,8 @@ export class FlashEffect {
             active: false,
             startTime: 0,
             duration: 0,
-            startColor: new THREE.Color(1, 1, 1),
-            endColor: new THREE.Color(0, 0, 0),
+            startColor: new Color(1, 1, 1),
+            endColor: new Color(0, 0, 0),
             startOpacity: 0,
             endOpacity: 0,
             ease: 'Linear'
@@ -61,15 +61,15 @@ export class FlashEffect {
             active: false,
             startTime: 0,
             duration: 0,
-            startColor: new THREE.Color(1, 1, 1),
-            endColor: new THREE.Color(0, 0, 0),
+            startColor: new Color(1, 1, 1),
+            endColor: new Color(0, 0, 0),
             startOpacity: 0,
             endOpacity: 0,
             ease: 'Linear'
         };
         
         // Create flash materials with transparency
-        this.fgMaterial = new THREE.MeshBasicMaterial({
+        this.fgMaterial = new MeshBasicMaterial({
             color: 0xffffff,
             transparent: true,
             opacity: 0,
@@ -77,7 +77,7 @@ export class FlashEffect {
             depthWrite: false,
         });
         
-        this.bgMaterial = new THREE.MeshBasicMaterial({
+        this.bgMaterial = new MeshBasicMaterial({
             color: 0xffffff,
             transparent: true,
             opacity: 0,
@@ -85,20 +85,20 @@ export class FlashEffect {
             depthWrite: false,
         });
         
-        this.scene = new THREE.Scene();
-        this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+        this.scene = new Scene();
+        this.camera = new OrthographicCamera(-1, 1, 1, -1, 0, 1);
         
         // Full-screen quads
-        const geometry = new THREE.PlaneGeometry(2, 2);
+        const geometry = new PlaneGeometry(2, 2);
         
         // BG quad renders first (added first to scene)
-        this.bgQuad = new THREE.Mesh(geometry, this.bgMaterial);
+        this.bgQuad = new Mesh(geometry, this.bgMaterial);
         this.bgQuad.position.z = -1;
         this.bgQuad.renderOrder = 1000; // Render on top of everything
         this.scene.add(this.bgQuad);
         
         // FG quad renders on top (added second to scene)
-        this.fgQuad = new THREE.Mesh(geometry, this.fgMaterial);
+        this.fgQuad = new Mesh(geometry, this.fgMaterial);
         this.fgQuad.position.z = -0.5;
         this.fgQuad.renderOrder = 1001; // Render on top of everything
         this.scene.add(this.fgQuad);
@@ -167,7 +167,7 @@ export class FlashEffect {
      */
     private updateTransition(
         transition: FlashTransition,
-        material: THREE.MeshBasicMaterial,
+        material: MeshBasicMaterial,
         currentTime: number
     ): boolean {
         if (!transition.active) {
@@ -233,7 +233,7 @@ export class FlashEffect {
      * Uses alpha blending: flash overlays on top of existing content
      */
     renderFlash(
-        renderer: THREE.WebGLRenderer,
+        renderer: WebGLRenderer,
         currentTime: number
     ): void {
         if (!this.enabled) return;

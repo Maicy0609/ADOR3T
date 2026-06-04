@@ -1,31 +1,31 @@
-import * as THREE from 'three';
+import { Mesh, BufferGeometry, MeshBasicMaterial, BufferAttribute, DoubleSide, Vector3, Color } from 'three';
 
 export class PlanetTrail {
-  public mesh: THREE.Mesh;
-  private geometry: THREE.BufferGeometry;
-  private material: THREE.MeshBasicMaterial;
+  public mesh: Mesh;
+  private geometry: BufferGeometry;
+  private material: MeshBasicMaterial;
   private maxPoints: number = 200;
   private planetRadius: number;
   private segmentsPerPoint: number = 4;
 
-  constructor(color: THREE.Color, planetRadius: number) {
+  constructor(color: Color, planetRadius: number) {
     this.planetRadius = planetRadius;
-    this.geometry = new THREE.BufferGeometry();
+    this.geometry = new BufferGeometry();
 
     const maxVertices = this.maxPoints * this.segmentsPerPoint * 2;
     const positions = new Float32Array(maxVertices * 3);
-    this.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    this.geometry.setAttribute('position', new BufferAttribute(positions, 3));
 
-    this.material = new THREE.MeshBasicMaterial({
+    this.material = new MeshBasicMaterial({
       color,
       transparent: true,
       opacity: 0.6,
-      side: THREE.DoubleSide,
+      side: DoubleSide,
       depthWrite: false,
       depthTest: false,
     });
 
-    this.mesh = new THREE.Mesh(this.geometry, this.material);
+    this.mesh = new Mesh(this.geometry, this.material);
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 100;
   }
@@ -38,9 +38,9 @@ export class PlanetTrail {
     const n = xy.length >> 1; // number of points
     if (n < 2) { this.mesh.visible = false; return; }
 
-    const pts: THREE.Vector3[] = [];
+    const pts: Vector3[] = [];
     for (let i = 0; i < n; i++) {
-      pts.push(new THREE.Vector3(xy[i * 2], xy[i * 2 + 1], 0));
+      pts.push(new Vector3(xy[i * 2], xy[i * 2 + 1], 0));
     }
     this.buildMesh(pts);
     this.mesh.visible = true;
@@ -48,15 +48,15 @@ export class PlanetTrail {
 
   setPlanetRadius(radius: number): void { this.planetRadius = radius; }
 
-  private buildMesh(pts: THREE.Vector3[]): void {
-    const posAttr = this.geometry.getAttribute('position') as THREE.BufferAttribute;
+  private buildMesh(pts: Vector3[]): void {
+    const posAttr = this.geometry.getAttribute('position') as BufferAttribute;
     const positions = posAttr.array as Float32Array;
 
     const count = pts.length;
     const maxWidth = this.planetRadius * 2;
-    const normal = new THREE.Vector3();
-    const p1 = new THREE.Vector3();
-    const p2 = new THREE.Vector3();
+    const normal = new Vector3();
+    const p1 = new Vector3();
+    const p2 = new Vector3();
 
     let vertexIndex = 0;
     const indices: number[] = [];
@@ -127,19 +127,19 @@ export class PlanetTrail {
     this.geometry.computeBoundingSphere();
   }
 
-  private catmullRom(p0: THREE.Vector3, p1: THREE.Vector3, p2: THREE.Vector3, p3: THREE.Vector3, t: number): THREE.Vector3 {
+  private catmullRom(p0: Vector3, p1: Vector3, p2: Vector3, p3: Vector3, t: number): Vector3 {
     const t2 = t * t;
     const t3 = t2 * t;
-    return new THREE.Vector3(
+    return new Vector3(
       (-0.5 * t3 + t2 - 0.5 * t) * p0.x + (1.5 * t3 - 2.5 * t2 + 1) * p1.x + (-1.5 * t3 + 2 * t2 + 0.5 * t) * p2.x + (0.5 * t3 - 0.5 * t2) * p3.x,
       (-0.5 * t3 + t2 - 0.5 * t) * p0.y + (1.5 * t3 - 2.5 * t2 + 1) * p1.y + (-1.5 * t3 + 2 * t2 + 0.5 * t) * p2.y + (0.5 * t3 - 0.5 * t2) * p3.y,
       (-0.5 * t3 + t2 - 0.5 * t) * p0.z + (1.5 * t3 - 2.5 * t2 + 1) * p1.z + (-1.5 * t3 + 2 * t2 + 0.5 * t) * p2.z + (0.5 * t3 - 0.5 * t2) * p3.z,
     );
   }
 
-  private catmullRomTangent(p0: THREE.Vector3, p1: THREE.Vector3, p2: THREE.Vector3, p3: THREE.Vector3, t: number): THREE.Vector3 {
+  private catmullRomTangent(p0: Vector3, p1: Vector3, p2: Vector3, p3: Vector3, t: number): Vector3 {
     const t2 = t * t;
-    return new THREE.Vector3(
+    return new Vector3(
       (-1.5 * t2 + 2 * t - 0.5) * p0.x + (4.5 * t2 - 5 * t) * p1.x + (-4.5 * t2 + 4 * t + 0.5) * p2.x + (1.5 * t2 - t) * p3.x,
       (-1.5 * t2 + 2 * t - 0.5) * p0.y + (4.5 * t2 - 5 * t) * p1.y + (-4.5 * t2 + 4 * t + 0.5) * p2.y + (1.5 * t2 - t) * p3.y,
       (-1.5 * t2 + 2 * t - 0.5) * p0.z + (4.5 * t2 - 5 * t) * p1.z + (-4.5 * t2 + 4 * t + 0.5) * p2.z + (1.5 * t2 - t) * p3.z,

@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import { Vector3, Vector2 } from 'three';
 import { isEventActive } from './EventUtils';
 import { Level } from 'adofai';
 
@@ -15,9 +15,9 @@ export interface PositionTrackEvent {
 }
 
 export interface TileTransform {
-    position: THREE.Vector3;
+    position: Vector3;
     rotation: number;
-    scale: THREE.Vector3;
+    scale: Vector3;
     opacity: number;
     stickToFloors: boolean;
 }
@@ -26,7 +26,7 @@ export class PositionTrackManager {
     private levelData: any;
     private positionTrackEvents: Map<number, PositionTrackEvent[]>;
     private tileTransforms: Map<number, TileTransform>;
-    private tilePositions: Map<number, THREE.Vector2>;
+    private tilePositions: Map<number, Vector2>;
 
     private static TILE_SIZE = 1.0;
 
@@ -124,7 +124,7 @@ export class PositionTrackManager {
             }
         }
 
-        let currentPos = new THREE.Vector2(0, 0);
+        let currentPos = new Vector2(0, 0);
         this.tilePositions.set(0, currentPos.clone());
         for (let i = 0; i < tileCount; i++) {
             const rad = floats[i] * Math.PI / 180;
@@ -133,7 +133,7 @@ export class PositionTrackManager {
             this.tilePositions.set(i + 1, currentPos.clone());
         }
 
-        const workingPos: THREE.Vector2[] = [];
+        const workingPos: Vector2[] = [];
         const workingRot: number[] = [];
         const workingScale: number[] = [];
         const workingOpacity: number[] = [];
@@ -142,7 +142,7 @@ export class PositionTrackManager {
 
         for (let i = 0; i < tileCount; i++) {
             const basePos = this.tilePositions.get(i);
-            workingPos.push(basePos ? basePos.clone() : new THREE.Vector2(0, 0));
+            workingPos.push(basePos ? basePos.clone() : new Vector2(0, 0));
             workingRot.push(0);
             workingScale.push(1);
             workingOpacity.push(1);
@@ -151,7 +151,7 @@ export class PositionTrackManager {
 
         // ADOFAI's `vector`: accumulated non-justThisTile offset, used for relativeTo
         // relativeTo formula: (target.startPos + target.offsetPos) - (current.startPos + vector)
-        const vector = new THREE.Vector2(0, 0);
+        const vector = new Vector2(0, 0);
 
         for (let floor = 0; floor < tileCount; floor++) {
             const events = this.positionTrackEvents.get(floor);
@@ -267,9 +267,9 @@ export class PositionTrackManager {
         for (let i = 0; i < tileCount; i++) {
             const zLevel = (1000 - (i % 1000)) * 0.0001;
             transforms.set(i, {
-                position: new THREE.Vector3(workingPos[i].x, workingPos[i].y, zLevel),
+                position: new Vector3(workingPos[i].x, workingPos[i].y, zLevel),
                 rotation: workingRot[i],
-                scale: new THREE.Vector3(workingScale[i], workingScale[i], workingScale[i]),
+                scale: new Vector3(workingScale[i], workingScale[i], workingScale[i]),
                 opacity: workingOpacity[i],
                 stickToFloors: workingStick[i],
             });

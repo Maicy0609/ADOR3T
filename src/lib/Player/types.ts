@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import { Mesh, Vector3, Color, Scene, Texture, BufferGeometry, Material, Euler, Sprite, SpriteMaterial, ShaderMaterial, InstancedMesh, Object3D, WebGLRenderer, WebGLRenderTarget, Group, MeshBasicMaterial } from 'three';
 
 export type TargetFramerateType = "auto" | "30" | "60" | "120" | "144" | "165" | "240" | "unlimited";
 
@@ -46,15 +46,15 @@ export interface IMusic {
 }
 
 export interface IPlanet {
-  mesh: THREE.Mesh;
-  position: THREE.Vector3;
+  mesh: Mesh;
+  position: Vector3;
   radius: number;
-  color: THREE.Color;
+  color: Color;
   rotation: number;
   
   update(deltaTime: number): void;
-  render(scene: THREE.Scene): void;
-  moveTo(target: THREE.Vector3): void;
+  render(scene: Scene): void;
+  moveTo(target: Vector3): void;
   dispose(): void;
 }
 
