@@ -561,7 +561,9 @@ export class TileColorManager {
 
   formatHexColor(hex: string): string {
     if (!hex) return '#ffffff';
-    return hex.startsWith('#') ? hex : `#${hex}`;
+    const clean = hex.startsWith('#') ? hex.slice(1) : hex;
+    // Strip alpha channel from 8-digit hex (RRGGBBAA → RRGGBB)
+    return '#' + clean.slice(0, 6);
   }
 
   PosRelativeTo(input: any, thisid: number): number {

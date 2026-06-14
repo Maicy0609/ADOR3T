@@ -1496,30 +1496,64 @@ export class Player implements IPlayer {
   }
 
   /**
-   * Look up a tile's cached position at the given timeInLevel.
+   * Look up a tile's cached position at the given timeInLevel using linear interpolation.
    * Returns null if time is outside cached range.
    */
   private getCachedTilePos(tileIndex: number, queryTime: number): { x: number; y: number } | null {
     if (!this.trailCacheReady || this.trailTimeCache.length === 0) return null;
 
-    // Find closest cached frame via binary search on time
-    let bestIdx = -1;
-    let bestDiff = Infinity;
+    // Find the two nearest cached frames (one before, one after queryTime)
+    let prevIdx = -1;
+    let nextIdx = -1;
+    let prevTime = -Infinity;
+    let nextTime = Infinity;
 
     for (let i = 0; i < Player.TRAIL_CACHE_SIZE; i++) {
       const t = this.trailTimeCache[i];
       if (t < -900) continue; // unwritten slot
-      const diff = Math.abs(t - queryTime);
-      if (diff < bestDiff) {
-        bestDiff = diff;
-        bestIdx = i;
+      if (t <= queryTime && t > prevTime) {
+        prevTime = t;
+        prevIdx = i;
+      }
+      if (t >= queryTime && t < nextTime) {
+        nextTime = t;
+        nextIdx = i;
       }
     }
 
-    if (bestIdx < 0 || bestDiff > 0.02) return null; // >20ms away, too inaccurate
+    // If no valid entries found
+    if (prevIdx < 0 && nextIdx < 0) return null;
 
-    const entry = this.trailPositionCache[bestIdx];
-    return { x: entry[tileIndex * 2], y: entry[tileIndex * 2 + 1] };
+    // If only one side is available (query near buffer edges), use nearest within 20ms
+    if (prevIdx < 0) {
+      if (nextTime - queryTime > 0.02) return null;
+      const entry = this.trailPositionCache[nextIdx];
+      return { x: entry[tileIndex * 2], y: entry[tileIndex * 2 + 1] };
+    }
+    if (nextIdx < 0) {
+      if (queryTime - prevTime > 0.02) return null;
+      const entry = this.trailPositionCache[prevIdx];
+      return { x: entry[tileIndex * 2], y: entry[tileIndex * 2 + 1] };
+    }
+
+    // Both sides available: linearly interpolate
+    const range = nextTime - prevTime;
+    if (range < 0.000001) {
+      // Same time, just use either
+      const entry = this.trailPositionCache[prevIdx];
+      return { x: entry[tileIndex * 2], y: entry[tileIndex * 2 + 1] };
+    }
+
+    const t = (queryTime - prevTime) / range;
+    // Clamp query to [prevTime, nextTime] — both within 20ms, so this is bounded
+    const frac = Math.max(0, Math.min(1, t));
+
+    const prevEntry = this.trailPositionCache[prevIdx];
+    const nextEntry = this.trailPositionCache[nextIdx];
+    return {
+      x: prevEntry[tileIndex * 2] + (nextEntry[tileIndex * 2] - prevEntry[tileIndex * 2]) * frac,
+      y: prevEntry[tileIndex * 2 + 1] + (nextEntry[tileIndex * 2 + 1] - prevEntry[tileIndex * 2 + 1]) * frac,
+    };
   }
 
   private updateAnimatedTiles(): void {
