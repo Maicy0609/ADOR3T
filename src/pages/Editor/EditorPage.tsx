@@ -67,6 +67,9 @@ export default function EditorPage() {
   const player = previewerRef.current
   const totalMs = player?.totalDurationMs ?? 600000
 
+  // Reset timeline when new level is loaded
+  useEffect(() => { setSliderValue(0); setTimelineOpen(false) }, [totalMs])
+
   // Poll slider position during playback
   useEffect(() => {
     if (!playModeActive) return

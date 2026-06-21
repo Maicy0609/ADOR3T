@@ -98,7 +98,7 @@ export class InstancedMeshManager {
             // depthWrite: false — prevents transparent tiles from occluding tiles behind them.
             // Tiles are sorted back-to-front via renderOrder, so the painter's algorithm is correct
             // even without depth writes.
-            depthWrite: false
+            depthWrite: true
         });
 
         const instancedMesh = new InstancedMesh(geometry, material, maxInstances);

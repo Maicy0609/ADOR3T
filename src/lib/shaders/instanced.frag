@@ -9,6 +9,9 @@ varying vec3 vWorldPosition;
 varying float vTexSeed;
 
 void main() {
+    // Discard fully transparent fragments so they don't occlude tiles behind
+    if (vOpacity < 0.001) discard;
+
     vec3 finalColor = mix(vInstanceBgColor, vInstanceColor, vColor.r);
 
     if (vTexSeed > 0.0) {
