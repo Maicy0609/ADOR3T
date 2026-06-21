@@ -140,6 +140,9 @@ export class Player implements IPlayer {
   private tileColorManager: TileColorManager;
   
   // Decoration Manager
+  // ── 装饰物开关（暂未完成，release 时关闭） ──────────────────────────
+  public static enableDecorations: boolean = false;
+
   private decorationManager: DecorationManager | null = null;
 
   // MoveTrack Manager
@@ -322,17 +325,17 @@ export class Player implements IPlayer {
     this.cameraController.buildCameraTimeline(this.tileCameraEvents);
 
     // Initialize Decoration Manager
-    this.decorationManager = new DecorationManager(
-      this.scene,
-      this.levelData,
-      this.tileStartTimes,
-      this.tileBPM
-    );
-    this.decorationManager.init();
-
-    // Build decoration keyframes into TimelineManager for unified seeking
-    this.decorationManager.buildTimelineKeyframes(this.timelineManager);
-    (this.decorationManager as any)._timelineManager = this.timelineManager;
+    if (Player.enableDecorations) {
+      this.decorationManager = new DecorationManager(
+        this.scene,
+        this.levelData,
+        this.tileStartTimes,
+        this.tileBPM
+      );
+      this.decorationManager.init();
+      this.decorationManager.buildTimelineKeyframes(this.timelineManager);
+      (this.decorationManager as any)._timelineManager = this.timelineManager;
+    }
 
     // Initialize MoveTrack Manager with TimelineManager
     this.moveTrackManager = new MoveTrackManager(this.timelineManager);
@@ -613,10 +616,10 @@ export class Player implements IPlayer {
            const dy = cur.position[1] - prev.position[1];
            const dist = Math.sqrt(dx*dx + dy*dy);
            if (dist > 0.01) {
-                length = dist;
-                break;
+               length = dist;
+               break;
            }
-        }
+       }
     }
     
     // Direction (absolute angle in degrees)
@@ -2320,29 +2323,6 @@ export class Player implements IPlayer {
         this.dirtyTiles.add(idx);
       }
     }
-
-    // Re-dispatch trigger events (Bloom, Flash, RecolorTrack, SetCustomBG)
-    this.timelineManager.reset();
-    const trig = this.timelineManager.getTriggered(timeInLevel);
-    let needsTileColorBatch = false;
-    for (const ev of trig) {
-      switch (ev.eventType) {
-        case 'Bloom': this.processBloomEvent(ev); break;
-        case 'Flash': this.processFlashEvent(ev); break;
-        case 'SetCustomBG': this.processCustomBGEvent(ev); break;
-        case 'RecolorTrack':
-          // During seek, only store recolor config — skip per-tile mesh update
-          this.processRecolorEventConfigOnly(ev);
-          needsTileColorBatch = true;
-          break;
-      }
-    }
-    if (needsTileColorBatch) {
-      this.tileColorManager.initTileColors();
-      this.tiles.forEach((_, id) => this.updateTileMeshColor(parseInt(id)));
-      this.dirtyTiles.clear();
-      for (const idx of this.timelineManager.getAllTileIndices()) this.dirtyTiles.add(idx);
-    }
   }
 
   public setEditorMode(isEditorMode: boolean): void {
@@ -3779,30 +3759,6 @@ export class Player implements IPlayer {
 
     if (this.music) {
       this.music.dispose();
-    }
-  }
-
-  private processRecolorEventConfigOnly(event: any): void {
-    const startIdx = this.tileColorManager.PosRelativeTo(event.startTile, event.floor);
-    const endIdx = this.tileColorManager.PosRelativeTo(event.endTile, event.floor);
-    const gap = (event.gapLength !== undefined) ? event.gapLength : 0;
-    const settings = this.levelData.settings;
-    const config: TileColorConfig = {
-      trackStyle: event.trackStyle || settings.trackStyle || 'Standard',
-      trackColorType: event.trackColorType || settings.trackColorType || 'Single',
-      trackColor: event.trackColor || settings.trackColor || 'debb7b',
-      secondaryTrackColor: event.secondaryTrackColor || settings.secondaryTrackColor || 'ffffff',
-      trackColorPulse: event.trackColorPulse || settings.trackColorPulse || 'None',
-      trackColorAnimDuration: event.trackColorAnimDuration || settings.trackColorAnimDuration || 2,
-      trackPulseLength: event.trackPulseLength || settings.trackPulseLength || 10,
-      trackOpacity: parseHexAlpha(event.trackColor || settings.trackColor || 'debb7b'),
-      startFloor: event.floor,
-      recolorTriggerTime: event.recolorTriggerTime
-    };
-    const minIdx = Math.max(0, Math.min(startIdx, endIdx));
-    const maxIdx = Math.min(this.tileColorManager.getTotalTiles() - 1, Math.max(startIdx, endIdx));
-    for (let i = minIdx; i <= maxIdx; i += (gap + 1)) {
-      this.tileColorManager.setTileRecolorConfig(i, config);
     }
   }
 }
