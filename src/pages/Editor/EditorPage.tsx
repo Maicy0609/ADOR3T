@@ -67,9 +67,6 @@ export default function EditorPage() {
   const player = previewerRef.current
   const totalMs = player?.totalDurationMs ?? 600000
 
-  // Reset timeline when new level is loaded
-  useEffect(() => { setSliderValue(0); setTimelineOpen(false) }, [totalMs])
-
   // Poll slider position during playback
   useEffect(() => {
     if (!playModeActive) return
@@ -80,6 +77,11 @@ export default function EditorPage() {
     }, 100)
     return () => clearInterval(id)
   }, [playModeActive])
+
+  // Reset timeline when a new level is loaded
+  useEffect(() => {
+    setSliderValue(0)
+  }, [adofaiFile])
 
   // Sync slider when tile is selected via click/keyboard
   useEffect(() => {
