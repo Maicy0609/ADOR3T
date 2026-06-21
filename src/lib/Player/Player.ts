@@ -1727,8 +1727,8 @@ export class Player implements IPlayer {
   }
 
   public renderPlayer(delta: number): void {
-    // Sync camera zoom/rotation from CameraController (needed for non-play seek)
-    if (!this.isPlaying && this.cameraController) {
+    // Sync camera/visibleTiles/instanced from CameraController (non-play + paused)
+    if ((!this.isPlaying || this.isPaused) && this.cameraController) {
       const interp = this.cameraController.getInterpolatedValues(this.elapsedTime);
       // Compute a plausible pivot from tile positions at seeked time
       const seekIdx = this.getTileIndexAtTime(this.elapsedTime);
@@ -2254,7 +2254,7 @@ export class Player implements IPlayer {
       this.useAudioContextTime = false;
     }
 
-    if (!visualOnly && this.isPlaying) {
+    if (!visualOnly && this.isPlaying && !this.isPaused) {
       if (this.music && this.music.hasAudio) {
         const offset = (s.offset || 0) / 1000;
         this.music.seek(Math.max(0, timeMs / 1000 - this.musicStartDelay + offset));
