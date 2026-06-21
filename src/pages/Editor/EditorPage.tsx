@@ -471,7 +471,7 @@ export default function EditorPage() {
                       if (p) {
                         p.seekTo(v, true)
                         const idx = p.getTileIndexAtTime(v)
-                        p.selectTile(idx)
+                        p.selectTile(idx, false)
                       }
                     }}
                     onPointerUp={() => {

@@ -1120,16 +1120,16 @@ export class Player implements IPlayer {
     this.deselectTile();
   }
 
-  public selectTile(index: number): void {
+  public selectTile(index: number, moveCamera: boolean = true): void {
     if (index < 0 || index >= this.levelData.tiles.length) return;
-    console.log('[selectTile]', index);
+    console.log('[selectTile]', index, 'moveCamera:', moveCamera);
     // Restore old selection color before switching
     if (this.selectedTileIndex !== null && this.selectedTileIndex !== index) {
       this.restoreTileColor(this.selectedTileIndex);
     }
     this.selectedTileIndex = index;
     this.selectionTime = 0;
-    if (!this.isPlaying) this.moveCameraToTile(index);
+    if (moveCamera && !this.isPlaying) this.moveCameraToTile(index);
   }
 
   public deselectTile(): void {
