@@ -1878,6 +1878,7 @@ export class Player implements IPlayer {
       }
       // Use performance.now() timekeeping (AudioContext not yet synced)
       this.useAudioContextTime = false;
+      this.audioDriftSynced = true; // skip one-shot audio sync — already seeked
     }
 
     // Calculate delay for countdown
@@ -2215,14 +2216,12 @@ export class Player implements IPlayer {
     const timeInLevel = timeMs / 1000 - cd0;
 
     this.elapsedTime = timeMs;
+    this.startTime = performance.now() - timeMs;
 
-    // Sync wall-clock base so updatePlayer doesn't overwrite the seek
-    if (!this.music?.hasAudio || !this.music?.isPlaying) {
-      this.startTime = performance.now() - timeMs;
-    }
-    if (this.useAudioContextTime) {
-      const ctx = getSharedAudioContext();
-      if (ctx) this.audioContextStartOffset = ctx.currentTime - timeMs / 1000;
+    const ctx = getSharedAudioContext();
+    if (ctx) {
+      this.audioContextStartOffset = ctx.currentTime - timeMs / 1000;
+      this.useAudioContextTime = false;
     }
 
     if (!visualOnly && this.isPlaying) {
