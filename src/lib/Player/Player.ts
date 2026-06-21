@@ -2320,6 +2320,18 @@ export class Player implements IPlayer {
         this.dirtyTiles.add(idx);
       }
     }
+
+    // Re-dispatch trigger events (Bloom, Flash, RecolorTrack, SetCustomBG)
+    this.timelineManager.reset();
+    const trig = this.timelineManager.getTriggered(timeInLevel);
+    for (const ev of trig) {
+      switch (ev.eventType) {
+        case 'Bloom': this.processBloomEvent(ev); break;
+        case 'Flash': this.processFlashEvent(ev); break;
+        case 'SetCustomBG': this.processCustomBGEvent(ev); break;
+        case 'RecolorTrack': this.processRecolorEvent(ev); break;
+      }
+    }
   }
 
   public setEditorMode(isEditorMode: boolean): void {
