@@ -2015,6 +2015,13 @@ export class Player implements IPlayer {
     this.startPlay();
   }
 
+  get currentTimeMs(): number { return this.elapsedTime; }
+
+  get totalDurationMs(): number {
+    const lastTileTime = this.tileStartTimes[this.tileStartTimes.length - 1] || 0;
+    return (lastTileTime + 10) * 1000;
+  }
+
   public seekTo(timeMs: number): void {
     const s = this.levelData.settings;
     const bpm0 = s.bpm || 100;
