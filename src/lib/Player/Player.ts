@@ -1137,6 +1137,7 @@ export class Player implements IPlayer {
       this.restoreTileColor(this.selectedTileIndex);
     }
     this.selectedTileIndex = null;
+    this._targetCamPos = null;
   }
 
   public resetCameraZoomRotation(): void {
@@ -1747,8 +1748,8 @@ export class Player implements IPlayer {
         }
       }
     }
-    // Smooth camera follow for selected tile
-    if (this._targetCamPos) {
+    // Smooth camera follow for selected tile (disabled during playback)
+    if (this._targetCamPos && !this.isPlaying) {
       this.cameraPosition.lerp(this._targetCamPos, Math.min(1, delta * 8));
       this.camera.position.x = this.cameraPosition.x;
       this.camera.position.y = this.cameraPosition.y;
