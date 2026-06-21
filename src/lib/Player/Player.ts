@@ -1816,6 +1816,7 @@ export class Player implements IPlayer {
   private useAudioContextTime: boolean = false;
 
   public startPlay(startAtMs: number = 0): void {
+    console.log('[Player] startPlay called with startAtMs:', startAtMs);
     if (this.isPlaying) return;
     
     this.isPlaying = true;

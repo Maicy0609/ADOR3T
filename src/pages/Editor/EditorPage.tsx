@@ -120,12 +120,15 @@ export default function EditorPage() {
   const handlePlayWithSeek = useCallback(() => {
     const p = previewerRef.current
     const selectedIdx = p?.selectedTileIndex ?? null
+    console.log('[Play] selectedTileIndex:', selectedIdx, 'playMode:', playMode)
     if (p) p.deselectTile()
     if (playMode === 'preview' && selectedIdx !== null && p) {
       const t = p.getTileTimeMs(selectedIdx)
+      console.log('[Play] seek to tile', selectedIdx, 'timeMs:', t)
       handlePlay(t)
       return
     }
+    console.log('[Play] no tile selected, start from beginning')
     handlePlay()
   }, [playMode, handlePlay])
 

@@ -139,6 +139,7 @@ export function useEditorState() {
     if (playMode === "preview") {
       setPlayMode("play")
       setPlayModeActive(true)
+      console.log('[EditorState] calling startPlay with:', startAtMs)
       previewerRef.current?.startPlay(startAtMs ?? 0)
     } else if (playMode === "play") {
       setPlayMode("pause")
