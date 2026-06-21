@@ -2248,18 +2248,21 @@ export class Player implements IPlayer {
       this.useAudioContextTime = false;
     }
 
-    if (!visualOnly && this.isPlaying && !this.isPaused) {
+    if (!visualOnly) {
+      // Music seek allowed during pause (sets currentTime without playing)
       if (this.music && this.music.hasAudio) {
         const offset = (s.offset || 0) / 1000;
         this.music.seek(Math.max(0, timeMs / 1000 - this.musicStartDelay + offset));
       }
+      // Hitsounds and video only during active playback
+      if (this.isPlaying && !this.isPaused) {
+        if (this.hitsoundManager && this.hitsoundManager.isSynthesized() && timeInLevel > 0) {
+          this.hitsoundManager.startAtOffset(timeInLevel);
+        }
 
-      if (this.hitsoundManager && this.hitsoundManager.isSynthesized() && timeInLevel > 0) {
-        this.hitsoundManager.startAtOffset(timeInLevel);
-      }
-
-      if (this.videoElement) {
-        this.videoElement.currentTime = Math.max(0, timeMs / 1000 - this.musicStartDelay);
+        if (this.videoElement) {
+          this.videoElement.currentTime = Math.max(0, timeMs / 1000 - this.musicStartDelay);
+        }
       }
     }
 
