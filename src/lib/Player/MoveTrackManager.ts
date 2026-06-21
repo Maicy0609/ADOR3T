@@ -1,61 +1,9 @@
-import { Vector3, Euler, Mesh, Vector2, ShaderMaterial } from 'three';
-import { getEasingFunction } from './WasmEasing';
+import { Vector3, Euler, Mesh, Vector2 } from 'three';
 import { debugLog } from './DebugLog';
-import { isEventActive, isFieldEnabled } from './EventUtils';
-import { Level } from 'adofai';
-
-interface AnimationProperty {
-    property: string;
-    startValue: number;
-    endValue: number;
-    startTime: number;
-    duration: number;
-    easingFunc: (t: number) => number;
-}
-
-interface TileAnimationState {
-    animations: Map<string, AnimationProperty>;
-}
-
-interface AxisAnim {
-    sv: number;
-    ev: number;
-    st: number;
-    dur: number;
-    ease: (t: number) => number;
-}
-
-interface PendingMoveTrackTarget {
-    startTime: number;
-    duration: number;
-    easingFunc: (t: number) => number;
-    targets: {
-        positionX?: number;
-        positionY?: number;
-        rotationZ?: number;
-        scaleX?: number;
-        scaleY?: number;
-        opacity?: number;
-    };
-}
+import { TimelineManager } from './TimelineManager';
 
 export class MoveTrackManager {
-    private levelData: any;
-    private tileStartTimes: number[];
-    private tileBPM: number[];
-
-    private moveTrackEventsTimeline: { time: number; event: any }[] = [];
-    private lastMoveTrackEventIndex: number = -1;
-
-    private tileAnimationStates: Map<number, TileAnimationState> = new Map();
-
-    private tileInitialStates: Map<number, {
-        position: Vector3;
-        rotation: Euler;
-        scale: Vector3;
-        opacity: number;
-    }> = new Map();
-
+    private timelineManager: TimelineManager;
     private tiles: Map<string, Mesh> | null = null;
 
     private basePositions: Vector2[] = [];
@@ -69,31 +17,18 @@ export class MoveTrackManager {
         opacity: number
     ) => void;
 
-    private pendingMoveTrackTargets: Map<number, PendingMoveTrackTarget[]> = new Map();
     private currentTime: number = 0;
+    private activeTileIndices: Set<number> = new Set();
 
     private static playCounter: number = 0;
     private debugPlayId: number = 0;
 
-    constructor(levelData: Level, tileStartTimes: number[], tileBPM: number[]) {
-        this.levelData = levelData;
-        this.tileStartTimes = tileStartTimes;
-        this.tileBPM = tileBPM;
+    constructor(timelineManager: TimelineManager) {
+        this.timelineManager = timelineManager;
     }
 
     public setTilesReference(tiles: Map<string, Mesh>): void {
         this.tiles = tiles;
-        tiles.forEach((tileMesh, tileId) => {
-            const index = parseInt(tileId);
-            if (!this.tileInitialStates.has(index)) {
-                this.tileInitialStates.set(index, {
-                    position: tileMesh.position.clone(),
-                    rotation: tileMesh.rotation.clone() as Euler,
-                    scale: tileMesh.scale.clone(),
-                    opacity: tileMesh.userData.opacity ?? 1
-                });
-            }
-        });
     }
 
     public setBasePositions(positions: Vector2[]): void {
@@ -106,161 +41,47 @@ export class MoveTrackManager {
 
     public registerTileInitial(index: number, tileMesh: Mesh): void {
         const playLabel = `[MoveTrackManager][Play#${this.debugPlayId}]`;
-        if (!this.tileInitialStates.has(index)) {
-            debugLog(playLabel, `Registering initial state for tile ${index}: pos=(${tileMesh.position.x.toFixed(3)},${tileMesh.position.y.toFixed(3)}), rot=${tileMesh.rotation.z.toFixed(6)}`);
-            this.tileInitialStates.set(index, {
-                position: tileMesh.position.clone(),
-                rotation: tileMesh.rotation.clone() as Euler,
-                scale: tileMesh.scale.clone(),
-                opacity: tileMesh.userData.opacity ?? 1
-            });
+        const entity = `tile:${index}`;
 
-            const pendingAnims = this.pendingMoveTrackTargets.get(index);
-            if (pendingAnims && pendingAnims.length > 0) {
-                debugLog(playLabel, `  tile[${index}] has ${pendingAnims.length} pending MoveTrack target(s)`);
-                let state = this.tileAnimationStates.get(index);
-                if (!state) {
-                    state = { animations: new Map() };
-                    this.tileAnimationStates.set(index, state);
-                }
-                for (const pending of pendingAnims) {
-                    if (pending.duration <= 0) {
-                        for (const [prop, value] of Object.entries(pending.targets)) {
-                            if (value === undefined) continue;
-                            this.animateProperty(tileMesh, prop, NaN, value,
-                                0, pending.easingFunc, state, this.currentTime);
-                        }
-                    } else {
-                        const elapsed = this.currentTime - pending.startTime;
-                        const remainingDuration = Math.max(pending.duration - elapsed, 0.001);
-                        for (const [prop, targetValue] of Object.entries(pending.targets)) {
-                            if (targetValue === undefined) continue;
-                            let currentValue: number;
-                            switch (prop) {
-                                case 'positionX': currentValue = tileMesh.position.x; break;
-                                case 'positionY': currentValue = tileMesh.position.y; break;
-                                case 'rotationZ': currentValue = tileMesh.rotation.z; break;
-                                case 'scaleX': currentValue = tileMesh.scale.x; break;
-                                case 'scaleY': currentValue = tileMesh.scale.y; break;
-                                case 'opacity': currentValue = tileMesh.userData.opacity ?? 1; break;
-                                default: continue;
-                            }
-                            this.animateProperty(tileMesh, prop, currentValue, targetValue,
-                                remainingDuration, pending.easingFunc, state, this.currentTime);
-                        }
-                    }
-                }
-                this.pendingMoveTrackTargets.delete(index);
-            }
-        } else {
-            debugLog(playLabel, `Skipping registerTileInitial for tile ${index} (already exists)`);
+        if (!this.timelineManager.hasTimeline(entity, 'positionX')) {
+            debugLog(playLabel, `No MoveTrack timeline for tile ${index}, skipping`);
+            return;
+        }
+
+        debugLog(playLabel, `Applying MoveTrack to tile ${index} at t=${this.currentTime.toFixed(3)}`);
+        this.timelineManager.applyToTileMesh(index, tileMesh, this.currentTime);
+
+        if (this.tileTransformChanged) {
+            this.tileTransformChanged(
+                index,
+                tileMesh.position,
+                tileMesh.rotation as Euler,
+                tileMesh.scale,
+                tileMesh.userData.opacity ?? 1
+            );
         }
     }
 
-    public initializeMoveTrackEvents(tileMoveTrackEvents: Map<number, any[]>): void {
-        this.moveTrackEventsTimeline = [];
-        const entries: { time: number; event: any }[] = [];
-
-        tileMoveTrackEvents.forEach((events, floor) => {
-            const bpm = this.tileBPM[floor] || 100;
-            const secPerBeat = 60 / bpm;
-            const startTime = this.tileStartTimes[floor] || 0;
-
-            // Sort by id for stable ordering within same floor
-            const sorted = [...events].sort((a, b) => (a.id ?? Infinity) - (b.id ?? Infinity));
-            const zeroOffsetEvents = sorted.filter(e => (e.angleOffset || 0) === 0);
-
-            sorted.forEach(event => {
-                if (!isEventActive(event)) return;
-                const eventWithFloor = { ...event, floor };
-                const angleOffset = event.angleOffset || 0;
-                let timeOffset = (angleOffset / 180) * secPerBeat;
-                // Micro-offset for multiple zero-angleOffset events (matching camera)
-                if (angleOffset === 0 && zeroOffsetEvents.length > 1) {
-                    const order = zeroOffsetEvents.findIndex(e => e.id === event.id);
-                    timeOffset += order * 0.0001;
-                }
-                const eventTime = startTime + timeOffset;
-                const duration = (event.duration ?? 1) * secPerBeat;
-
-                entries.push({
-                    time: eventTime,
-                    event: { ...eventWithFloor, duration, startTime: eventTime }
-                });
-            });
-        });
-
-        entries.sort((a, b) => {
-            const dt = a.time - b.time;
-            return Math.abs(dt) < 0.0001
-                ? ((a.event.id ?? Infinity) - (b.event.id ?? Infinity))
-                : (dt > 0 ? 1 : -1);
-        });
-        this.moveTrackEventsTimeline = entries;
-        debugLog('[MoveTrackManager] Found MoveTrack events:', entries.length);
-    }
-
     public update(elapsedTimeMs: number): void {
-        const timeInSeconds = elapsedTimeMs / 1000;
-        this.currentTime = timeInSeconds;
-        this.processMoveTrackEvents(timeInSeconds);
-        this.updateActiveAnimations(timeInSeconds);
-        this.cleanupCompletedAnimations(timeInSeconds);
+        this.currentTime = elapsedTimeMs / 1000;
+        this.activeTileIndices.clear();
+        this.updateTileAnimations();
     }
 
-    private updateActiveAnimations(currentTime: number): void {
+    private updateTileAnimations(): void {
         if (!this.tiles) return;
+        const time = this.currentTime;
 
-        for (const [tileIndex, state] of this.tileAnimationStates.entries()) {
-            const mesh = this.tiles.get(tileIndex.toString());
+        for (const tileIdx of this.timelineManager.getAllTileIndices()) {
+            if (!this.timelineManager.isTileActive(tileIdx, time)) continue;
+            this.activeTileIndices.add(tileIdx);
+            const mesh = this.tiles.get(tileIdx.toString());
             if (!mesh) continue;
 
-            let anyDirty = false;
-
-            // Absolute interpolation for per-property animations (overwrite model)
-            for (const [propertyName, animation] of state.animations) {
-                const elapsed = currentTime - animation.startTime;
-                const progress = Math.min(elapsed / animation.duration, 1);
-                const easedProgress = animation.easingFunc(progress);
-                const value = animation.startValue + (animation.endValue - animation.startValue) * easedProgress;
-
-                switch (propertyName) {
-                    case 'positionX': mesh.position.x = value; break;
-                    case 'positionY': mesh.position.y = value; break;
-                    case 'scaleX': mesh.scale.x = value; break;
-                    case 'scaleY': mesh.scale.y = value; break;
-                    case 'rotationZ': mesh.rotation.z = value; break;
-                    case 'opacity':
-                        if (mesh.material) {
-                            if (mesh.material instanceof ShaderMaterial && mesh.material.uniforms.opacity) {
-                                mesh.material.uniforms.opacity.value = value;
-                            } else {
-                                (mesh.material as any).opacity = value;
-                            }
-                            (mesh.material as any).transparent = value < 0.999;
-                            mesh.userData.opacity = value;
-                            mesh.visible = value > 0.001;
-                            mesh.traverse((child) => {
-                                if (child !== mesh && (child as any).material) {
-                                    const childMat = (child as any).material;
-                                    if (childMat.opacity !== undefined) {
-                                        childMat.opacity = value;
-                                    }
-                                }
-                            });
-                        }
-                        break;
-                }
-
-                if (progress >= 1) {
-                    state.animations.delete(propertyName);
-                }
-                anyDirty = true;
-            }
-
-            if (anyDirty && this.tileTransformChanged) {
+            const dirty = this.timelineManager.applyToTileMesh(tileIdx, mesh, time);
+            if (dirty && this.tileTransformChanged) {
                 this.tileTransformChanged(
-                    tileIndex,
+                    tileIdx,
                     mesh.position,
                     mesh.rotation as Euler,
                     mesh.scale,
@@ -270,525 +91,92 @@ export class MoveTrackManager {
         }
     }
 
-    private cleanupCompletedAnimations(currentTime: number): void {
-        // no-op: handled in updateActiveAnimations
-    }
-
     public getPlanetFollowOffset(tileIndex: number, currentTime: number): { x: number; y: number; rotation: number } {
         const mesh = this.tiles?.get(tileIndex.toString());
         if (!mesh) return { x: 0, y: 0, rotation: 0 };
-        const initialState = this.tileInitialStates.get(tileIndex);
-        if (!initialState) return { x: 0, y: 0, rotation: 0 };
+
+        const baseX = tileIndex < this.basePositions.length ? this.basePositions[tileIndex].x : 0;
+        const baseY = tileIndex < this.basePositions.length ? this.basePositions[tileIndex].y : 0;
+        const baseRot = tileIndex < this.baseRotations.length ? this.baseRotations[tileIndex] : 0;
+
         return {
-            x: mesh.position.x - initialState.position.x,
-            y: mesh.position.y - initialState.position.y,
-            rotation: mesh.rotation.z - initialState.rotation.z,
+            x: mesh.position.x - baseX,
+            y: mesh.position.y - baseY,
+            rotation: mesh.rotation.z - baseRot,
         };
     }
 
     /**
      * Compute where a tile's mesh would be at an arbitrary point in time.
      * Used by trail rendering to reconstruct historical positions when stickToFloors is on.
-     * Replays MoveTrack events up to `queryTime` and evaluates active animations.
      */
     public getTilePositionAtTime(tileIndex: number, queryTime: number): { x: number; y: number } | null {
-        const initialState = this.tileInitialStates.get(tileIndex);
-        if (!initialState) return null;
-
-        let x = initialState.position.x;
-        let y = initialState.position.y;
-
-        const basePosX = (tileIndex < this.basePositions.length) ? this.basePositions[tileIndex].x : x;
-        const basePosY = (tileIndex < this.basePositions.length) ? this.basePositions[tileIndex].y : y;
-
-        // Track current active animation per axis (later events overwrite — absolute model)
-        let ax: AxisAnim | null = null;
-        let ay: AxisAnim | null = null;
-
-        // Helper: evaluate running position at a given timestamp using current active anim
-        const evalAt = (t: number) => {
-            if (ax) {
-                const e = Math.min(Math.max((t - ax.st) / ax.dur, 0), 1);
-                x = ax.sv + (ax.ev - ax.sv) * ax.ease(e);
-            }
-            if (ay) {
-                const e = Math.min(Math.max((t - ay.st) / ay.dur, 0), 1);
-                y = ay.sv + (ay.ev - ay.sv) * ay.ease(e);
-            }
-        };
-
-        for (const entry of this.moveTrackEventsTimeline) {
-            if (entry.time > queryTime) break;
-
-            const event = entry.event;
-            const startTile = this.parseTileReference(event.startTile, event.floor);
-            const endTile = this.parseTileReference(event.endTile, event.floor);
-            const eStart = Math.min(startTile, endTile);
-            const eEnd = Math.max(startTile, endTile);
-            const gapLength = event.gapLength || 0;
-
-            let affectsTile = false;
-            for (let i = eStart; i <= eEnd; i += 1 + gapLength) {
-                if (i === tileIndex) { affectsTile = true; break; }
-            }
-            if (!affectsTile) continue;
-
-            const duration = event.duration ?? 1;
-            const ease = event.ease || 'Linear.easeNone';
-            const easingFunc = this.getEasingFunction(ease);
-
-            const positionUsed = event.positionOffset !== undefined && isFieldEnabled(event, 'positionOffset');
-            if (!positionUsed) continue;
-
-            const offsetX = positionUsed && event.positionOffset[0] != null ? event.positionOffset[0] : null;
-            const offsetY = positionUsed && event.positionOffset[1] != null ? event.positionOffset[1] : null;
-
-            // Evaluate running position at THIS event's start time so that
-            // the new animation starts from wherever the tile actually is.
-            evalAt(entry.time);
-
-            if (offsetX != null) {
-                ax = { sv: x, ev: basePosX + offsetX, st: entry.time, dur: duration, ease: easingFunc };
-            }
-            if (offsetY != null) {
-                ay = { sv: y, ev: basePosY + offsetY, st: entry.time, dur: duration, ease: easingFunc };
-            }
-        }
-
-        // Final evaluation at queryTime
-        evalAt(queryTime);
-
-        return { x, y };
-    }
-
-    private processMoveTrackEvents(timeInSeconds: number): void {
-        const playLabel = `[MoveTrackManager][Play#${this.debugPlayId}]`;
-        if (this.lastMoveTrackEventIndex >= 0 && this.lastMoveTrackEventIndex < this.moveTrackEventsTimeline.length) {
-            const lastEvent = this.moveTrackEventsTimeline[this.lastMoveTrackEventIndex];
-            if (timeInSeconds < lastEvent.time) {
-                debugLog(playLabel, `REWIND: resetting lastMoveTrackEventIndex from ${this.lastMoveTrackEventIndex} to -1`);
-                this.lastMoveTrackEventIndex = -1;
-            }
-        }
-
-        while (
-            this.lastMoveTrackEventIndex + 1 < this.moveTrackEventsTimeline.length &&
-            this.moveTrackEventsTimeline[this.lastMoveTrackEventIndex + 1].time <= timeInSeconds
-        ) {
-            this.lastMoveTrackEventIndex++;
-            const entry = this.moveTrackEventsTimeline[this.lastMoveTrackEventIndex];
-            if (entry) {
-                this.processMoveTrackEvent(entry.event, timeInSeconds);
-            }
-        }
-    }
-
-    private processMoveTrackEvent(event: any, currentTime: number): void {
-        if (!this.tiles) return;
-
-        const playLabel = `[MoveTrackManager][Play#${this.debugPlayId}]`;
-        const startTile = this.parseTileReference(event.startTile, event.floor);
-        const endTile = this.parseTileReference(event.endTile, event.floor);
-        const start = Math.min(startTile, endTile);
-        const end = Math.max(startTile, endTile);
-        const gapLength = event.gapLength || 0;
-
-        const duration = event.duration ?? 1;
-        const ease = event.ease || 'Linear.easeNone';
-        const positionUsed = event.positionOffset !== undefined && isFieldEnabled(event, 'positionOffset');
-        const rotationUsed = event.rotationOffset !== undefined && isFieldEnabled(event, 'rotationOffset');
-        const scaleUsed = event.scale !== undefined && isFieldEnabled(event, 'scale');
-        const opacityUsed = event.opacity != null && isFieldEnabled(event, 'opacity');
-        
-        // Handle position offset - may contain null values for individual axes
-        const positionOffsetX = positionUsed && event.positionOffset[0] != null ? event.positionOffset[0] : null;
-        const positionOffsetY = positionUsed && event.positionOffset[1] != null ? event.positionOffset[1] : null;
-        
-        const rotationOffset = rotationUsed ? (event.rotationOffset || 0) : 0;
-        
-        // Handle scale - may contain null values for individual axes
-        let scaleX: number | null = null;
-        let scaleY: number | null = null;
-        if (scaleUsed && event.scale) {
-            if (Array.isArray(event.scale)) {
-                scaleX = event.scale[0] != null ? event.scale[0] : null;
-                scaleY = event.scale[1] != null ? event.scale[1] : null;
-            } else {
-                scaleX = scaleY = event.scale;
-            }
-        }
-        
-        const opacity = opacityUsed ? event.opacity / 100 : 1;
-
-        const easingFunc = this.getEasingFunction(ease);
-
-        for (let i = start; i <= end; i += 1 + gapLength) {
-            const tileId = i.toString();
-            const tileMesh = this.tiles.get(tileId);
-
-            const initialState = this.tileInitialStates.get(i);
-            const tileBasePosX = (i < this.basePositions.length) ? this.basePositions[i].x : (initialState?.position.x ?? 0);
-            const tileBasePosY = (i < this.basePositions.length) ? this.basePositions[i].y : (initialState?.position.y ?? 0);
-            const tileBaseRot = (i < this.baseRotations.length) ? this.baseRotations[i] : (initialState?.rotation.z ?? 0);
-            const tileBaseScaleX = initialState?.scale.x ?? 1;
-            const tileBaseScaleY = initialState?.scale.y ?? 1;
-            const tileBaseOpacity = initialState?.opacity ?? 1;
-
-            if (!tileMesh) {
-                const targets: PendingMoveTrackTarget['targets'] = {};
-                if (positionOffsetX != null) {
-                    targets.positionX = tileBasePosX + positionOffsetX;
-                }
-                if (positionOffsetY != null) {
-                    targets.positionY = tileBasePosY + positionOffsetY;
-                }
-                if (rotationUsed) {
-                    targets.rotationZ = tileBaseRot + rotationOffset * Math.PI / 180;
-                }
-                if (scaleX != null) {
-                    targets.scaleX = scaleX / 100;
-                }
-                if (scaleY != null) {
-                    targets.scaleY = scaleY / 100;
-                }
-                if (opacityUsed) {
-                    targets.opacity = opacity;
-                }
-                if (Object.keys(targets).length > 0) {
-                    const pendingEntry: PendingMoveTrackTarget = {
-                        startTime: currentTime, duration, easingFunc, targets
-                    };
-                    if (!this.pendingMoveTrackTargets.has(i)) {
-                        this.pendingMoveTrackTargets.set(i, []);
-                    }
-                    this.pendingMoveTrackTargets.get(i)!.push(pendingEntry);
-                }
-                continue;
-            }
-
-            let state = this.tileAnimationStates.get(i);
-            if (!state) {
-                state = { animations: new Map() };
-                this.tileAnimationStates.set(i, state);
-            }
-
-            // Position: absolute interpolation (overwrite model)
-            if (positionOffsetX != null) {
-                const targetX = tileBasePosX + positionOffsetX;
-                if (!isNaN(targetX)) {
-                    this.animateProperty(tileMesh, 'positionX', tileMesh.position.x, targetX,
-                        duration, easingFunc, state, currentTime);
-                }
-            }
-            if (positionOffsetY != null) {
-                const targetY = tileBasePosY + positionOffsetY;
-                if (!isNaN(targetY)) {
-                    this.animateProperty(tileMesh, 'positionY', tileMesh.position.y, targetY,
-                        duration, easingFunc, state, currentTime);
-                }
-            }
-
-            // Rotation: absolute interpolation (overwrite model, matching original game)
-            if (rotationUsed) {
-                const targetRot = tileBaseRot + rotationOffset * Math.PI / 180;
-                if (!isNaN(targetRot)) {
-                    this.animateProperty(tileMesh, 'rotationZ', tileMesh.rotation.z, targetRot,
-                        duration, easingFunc, state, currentTime);
-                }
-            }
-
-            // Scale: absolute interpolation (overwrite model)
-            if (scaleX != null) {
-                const targetScaleX = scaleX / 100;
-                if (!isNaN(targetScaleX)) {
-                    this.animateProperty(tileMesh, 'scaleX', tileMesh.scale.x, targetScaleX,
-                        duration, easingFunc, state, currentTime);
-                }
-            }
-            if (scaleY != null) {
-                const targetScaleY = scaleY / 100;
-                if (!isNaN(targetScaleY)) {
-                    this.animateProperty(tileMesh, 'scaleY', tileMesh.scale.y, targetScaleY,
-                        duration, easingFunc, state, currentTime);
-                }
-            }
-
-            // Opacity: absolute interpolation (overwrite model)
-            if (opacityUsed) {
-                const currentOpacity = tileMesh.userData.opacity ?? 1;
-                this.animateProperty(tileMesh, 'opacity', currentOpacity, opacity,
-                    duration, easingFunc, state, currentTime);
-            }
-        }
-    }
-
-    private animateProperty(
-        mesh: Mesh,
-        property: string,
-        startValue: number,
-        endValue: number,
-        duration: number,
-        easingFunc: (t: number) => number,
-        state: TileAnimationState,
-        startTime: number
-    ): void {
-        if (duration <= 0) {
-            switch (property) {
-                case 'positionX': mesh.position.x = endValue; break;
-                case 'positionY': mesh.position.y = endValue; break;
-                case 'rotationZ': mesh.rotation.z = endValue; break;
-                case 'scaleX': mesh.scale.x = endValue; break;
-                case 'scaleY': mesh.scale.y = endValue; break;
-                case 'opacity':
-                    if (mesh.material) {
-                        if (mesh.material instanceof ShaderMaterial && mesh.material.uniforms.opacity) {
-                            mesh.material.uniforms.opacity.value = endValue;
-                        } else {
-                            (mesh.material as any).opacity = endValue;
-                        }
-                        (mesh.material as any).transparent = endValue < 0.999;
-                        mesh.userData.opacity = endValue;
-                        mesh.visible = endValue > 0.001;
-                        mesh.traverse((child) => {
-                            if (child !== mesh && (child as any).material) {
-                                const childMat = (child as any).material;
-                                if (childMat.opacity !== undefined) {
-                                    childMat.opacity = endValue;
-                                }
-                            }
-                        });
-                    }
-                    break;
-            }
-            state.animations.delete(property);
-            return;
-        }
-
-        state.animations.set(property, {
-            property, startValue, endValue, startTime, duration, easingFunc
-        });
-    }
-
-    private parseTileReference(ref: any, currentFloor: number): number {
-        if (Array.isArray(ref) && ref.length >= 2) {
-            const offset = Number(ref[0]) || 0;
-            const relativeTo = ref[1];
-            if (relativeTo === 'ThisTile' || relativeTo === 0) {
-                return currentFloor + offset;
-            } else if (relativeTo === 'Start' || relativeTo === 1) {
-                return offset;
-            } else if (relativeTo === 'End' || relativeTo === 2) {
-                return (this.levelData.tiles.length - 1) + offset;
-            }
-        }
-        return Number(ref) || currentFloor;
-    }
-
-    private normalizeAngle(angle: number): number {
-        let normalized = angle % (2 * Math.PI);
-        if (normalized > Math.PI) {
-            normalized -= 2 * Math.PI;
-        } else if (normalized < -Math.PI) {
-            normalized += 2 * Math.PI;
-        }
-        return normalized;
-    }
-
-    private approximatelyEqual(a: number, b: number, epsilon: number = 1e-5): boolean {
-        return Math.abs(a - b) < epsilon;
-    }
-
-    private getEasingFunction(easeName: string): (t: number) => number {
-        return getEasingFunction(easeName);
+        const entity = `tile:${tileIndex}`;
+        if (!this.timelineManager.hasTimeline(entity, 'positionX')) return null;
+        return this.timelineManager.samplePosition(entity, queryTime);
     }
 
     public fastForwardTo(targetTime: number): void {
         this.currentTime = targetTime;
-        while (
-            this.lastMoveTrackEventIndex + 1 < this.moveTrackEventsTimeline.length &&
-            this.moveTrackEventsTimeline[this.lastMoveTrackEventIndex + 1].time <= targetTime
-        ) {
-            this.lastMoveTrackEventIndex++;
-            const entry = this.moveTrackEventsTimeline[this.lastMoveTrackEventIndex];
-            if (entry) {
-                this.applyMoveTrackEventInstant(entry.event, targetTime);
-            }
-        }
-        this.tileAnimationStates.clear();
-    }
+        const tiles = this.tiles;
+        if (!tiles) return;
 
-    private applyMoveTrackEventInstant(event: any, currentTime: number): void {
-        if (!this.tiles) return;
-
-        const startTile = this.parseTileReference(event.startTile, event.floor);
-        const endTile = this.parseTileReference(event.endTile, event.floor);
-        const start = Math.min(startTile, endTile);
-        const end = Math.max(startTile, endTile);
-        const gapLength = event.gapLength || 0;
-
-        const positionUsed = event.positionOffset !== undefined && isFieldEnabled(event, 'positionOffset');
-        const rotationUsed = event.rotationOffset !== undefined && isFieldEnabled(event, 'rotationOffset');
-        const scaleUsed = event.scale !== undefined && isFieldEnabled(event, 'scale');
-        const opacityUsed = event.opacity != null && isFieldEnabled(event, 'opacity');
-        
-        // Handle position offset - may contain null values for individual axes
-        const positionOffsetX = positionUsed && event.positionOffset[0] != null ? event.positionOffset[0] : null;
-        const positionOffsetY = positionUsed && event.positionOffset[1] != null ? event.positionOffset[1] : null;
-        
-        const rotationOffset = rotationUsed ? (event.rotationOffset || 0) : 0;
-        
-        // Handle scale - may contain null values for individual axes
-        let scaleX: number | null = null;
-        let scaleY: number | null = null;
-        if (scaleUsed && event.scale) {
-            if (Array.isArray(event.scale)) {
-                scaleX = event.scale[0] != null ? event.scale[0] : null;
-                scaleY = event.scale[1] != null ? event.scale[1] : null;
-            } else {
-                scaleX = scaleY = event.scale;
-            }
-        }
-        
-        const opacity = opacityUsed ? event.opacity / 100 : 1;
-
-        for (let i = start; i <= end; i += 1 + gapLength) {
-            const tileId = i.toString();
-            const tileMesh = this.tiles.get(tileId);
-
-            const initialState = this.tileInitialStates.get(i);
-            const tileBasePosX = (i < this.basePositions.length) ? this.basePositions[i].x : (initialState?.position.x ?? 0);
-            const tileBasePosY = (i < this.basePositions.length) ? this.basePositions[i].y : (initialState?.position.y ?? 0);
-            const tileBaseRot = (i < this.baseRotations.length) ? this.baseRotations[i] : (initialState?.rotation.z ?? 0);
-
-            if (!tileMesh) {
-                const targets: PendingMoveTrackTarget['targets'] = {};
-                if (positionOffsetX != null) {
-                    targets.positionX = tileBasePosX + positionOffsetX;
-                }
-                if (positionOffsetY != null) {
-                    targets.positionY = tileBasePosY + positionOffsetY;
-                }
-                if (rotationUsed) {
-                    targets.rotationZ = tileBaseRot + rotationOffset * Math.PI / 180;
-                }
-                if (scaleX != null) {
-                    targets.scaleX = scaleX / 100;
-                }
-                if (scaleY != null) {
-                    targets.scaleY = scaleY / 100;
-                }
-                if (opacityUsed) {
-                    targets.opacity = opacity;
-                }
-                if (Object.keys(targets).length > 0) {
-                    const pendingEntry: PendingMoveTrackTarget = {
-                        startTime: currentTime, duration: 0,
-                        easingFunc: (t: number) => t, targets
-                    };
-                    if (!this.pendingMoveTrackTargets.has(i)) {
-                        this.pendingMoveTrackTargets.set(i, []);
-                    }
-                    this.pendingMoveTrackTargets.get(i)!.push(pendingEntry);
-                }
-                continue;
-            }
-
-            if (positionOffsetX != null) {
-                const tx = tileBasePosX + positionOffsetX;
-                if (!isNaN(tx)) tileMesh.position.x = tx;
-            }
-            if (positionOffsetY != null) {
-                const ty = tileBasePosY + positionOffsetY;
-                if (!isNaN(ty)) tileMesh.position.y = ty;
-            }
-            if (scaleX != null) {
-                tileMesh.scale.x = scaleX / 100;
-            }
-            if (scaleY != null) {
-                tileMesh.scale.y = scaleY / 100;
-            }
-            if (rotationUsed) {
-                tileMesh.rotation.z = tileBaseRot + rotationOffset * Math.PI / 180;
-            }
-            if (scaleUsed) {
-                if (scaleX != null && !isNaN(scaleX / 100)) tileMesh.scale.x = scaleX / 100;
-                if (scaleY != null && !isNaN(scaleY / 100)) tileMesh.scale.y = scaleY / 100;
-            }
-            if (opacityUsed) {
-                tileMesh.userData.opacity = opacity;
-                if (tileMesh.material) {
-                    (tileMesh.material as any).opacity = opacity;
-                    (tileMesh.material as any).transparent = opacity < 0.999;
-                }
-                tileMesh.visible = opacity > 0.001;
-                tileMesh.traverse((child) => {
-                    if (child !== tileMesh && (child as any).material) {
-                        (child as any).material.opacity = opacity;
-                    }
-                });
-            }
-
-            if (this.tileTransformChanged) {
-                this.tileTransformChanged(
-                    i, tileMesh.position, tileMesh.rotation as Euler,
-                    tileMesh.scale, tileMesh.userData.opacity ?? 1
-                );
-            }
+        for (const [tileId, mesh] of tiles) {
+            const tileIdx = parseInt(tileId, 10);
+            if (isNaN(tileIdx)) continue;
+            this.timelineManager.applyToTileMesh(tileIdx, mesh, targetTime);
         }
     }
 
     public getAnimatedTileIndices(): Set<number> {
-        return new Set(this.tileAnimationStates.keys());
+        return this.activeTileIndices;
     }
 
     public reset(): void {
         this.debugPlayId = ++MoveTrackManager.playCounter;
+        this.activeTileIndices.clear();
         const playLabel = `[MoveTrackManager][Play#${this.debugPlayId}]`;
 
-        this.tileAnimationStates.clear();
-        this.pendingMoveTrackTargets.clear();
-        this.lastMoveTrackEventIndex = -1;
-
         if (this.tiles) {
-            this.tileInitialStates.forEach((initial, index) => {
-                const mesh = this.tiles!.get(index.toString());
-                if (mesh) {
-                    mesh.position.copy(initial.position);
-                    mesh.rotation.copy(initial.rotation);
-                    mesh.scale.copy(initial.scale);
-                    mesh.userData.opacity = initial.opacity;
-                    mesh.visible = initial.opacity > 0.001;
+            for (const [tileId, mesh] of this.tiles) {
+                const tileIdx = parseInt(tileId, 10);
+                if (isNaN(tileIdx)) continue;
 
+                const entity = `tile:${tileIdx}`;
+                const x = this.timelineManager.sample(entity, 'positionX', 0);
+                const y = this.timelineManager.sample(entity, 'positionY', 0);
+                const rot = this.timelineManager.sample(entity, 'rotation', 0);
+                const sx = this.timelineManager.sample(entity, 'scaleX', 0);
+                const sy = this.timelineManager.sample(entity, 'scaleY', 0);
+                const op = this.timelineManager.sample(entity, 'opacity', 0);
+
+                if (x !== undefined) mesh.position.x = x;
+                if (y !== undefined) mesh.position.y = y;
+                if (rot !== undefined) mesh.rotation.z = rot;
+                if (sx !== undefined) mesh.scale.x = sx;
+                if (sy !== undefined) mesh.scale.y = sy;
+                if (op !== undefined) {
+                    mesh.userData.opacity = op;
+                    mesh.visible = op > 0.001;
                     if (mesh.material) {
-                        (mesh.material as any).opacity = initial.opacity;
-                        (mesh.material as any).transparent = initial.opacity < 0.999;
-                    }
-
-                    mesh.traverse((child) => {
-                        if (child !== mesh && (child as any).material) {
-                            const childMat = (child as any).material;
-                            if (childMat.opacity !== undefined) {
-                                childMat.opacity = initial.opacity;
-                            }
-                        }
-                    });
-
-                    if (this.tileTransformChanged) {
-                        this.tileTransformChanged(
-                            index, mesh.position, mesh.rotation as Euler,
-                            mesh.scale, mesh.userData.opacity ?? 1
-                        );
+                        (mesh.material as any).opacity = op;
+                        (mesh.material as any).transparent = op < 0.999;
                     }
                 }
-            });
+
+                if (this.tileTransformChanged) {
+                    this.tileTransformChanged(
+                        tileIdx, mesh.position, mesh.rotation as Euler,
+                        mesh.scale, mesh.userData.opacity ?? 1
+                    );
+                }
+            }
         }
 
         debugLog(playLabel, 'Reset complete');
     }
 
     public dispose(): void {
-        this.reset();
-        this.tileInitialStates.clear();
-        this.moveTrackEventsTimeline = [];
+        this.tiles = null;
     }
 }

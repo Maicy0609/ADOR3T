@@ -16,6 +16,7 @@ import { DecorationManager } from './DecorationManager';
 import { MoveTrackManager } from './MoveTrackManager';
 import { PositionTrackManager } from './PositionTrackManager';
 import { InstancedMeshManager } from './InstancedMeshManager';
+import { TimelineManager } from './TimelineManager';
 import { OverlayHUD } from './OverlayHUD';
 import { getIconTexture, getTwirlTexture, getSetSpeedTexture, createIconSprite } from './IconLoader';
 import Stats from 'three/examples/jsm/libs/stats.module.js';
@@ -72,6 +73,7 @@ export class Player implements IPlayer {
   private zoom: number = 1;
   private zoomMultiplier: number = 1.0;
   private cameraPosition: Vector3 = new Vector3(0, 0, 0);
+  private _lastCamSmoothTile: number = -1;
   
   // Interaction state
   private isDragging: boolean = false;
@@ -108,9 +110,9 @@ export class Player implements IPlayer {
   private tileEndDist: number[] = [];
   private tileEvents: Map<number, any[]> = new Map();
   private tileCameraEvents: Map<number, any[]> = new Map();
-  private tileMoveTrackEvents: Map<number, any[]> = new Map();
   private tileSetHitsoundEvents: Map<number, any[]> = new Map();
   private tilePlayHitsoundEvents: Map<number, any[]> = new Map();
+  private timelineManager: TimelineManager;
 
   // Per-tile hitsound overrides (from SetHitsound events)
   // Each entry: {type, volume} to override the default hitsound for that tile
@@ -148,21 +150,11 @@ export class Player implements IPlayer {
   private bloomThreshold: number = 50;
   private bloomIntensity: number = 100;
   private bloomColor: string = 'ffffff';
-  private bloomTimeline: { time: number; event: Bloom }[] = [];
-  private lastBloomTimelineIndex: number = -1;
   
   // Flash Effect
   private flashEffect: FlashEffect | null = null;
-  private flashTimeline: { time: number; event: Flash }[] = [];
-  private lastFlashTimelineIndex: number = -1;
-  
-  // Recolor Track
-  private recolorTimeline: { time: number; event: RecolorTrack }[] = [];
-  private lastRecolorTimelineIndex: number = -1;
   
   // Custom Background (SetCustomBG event)
-  private customBGTimeline: { time: number; event: any }[] = [];
-  private lastCustomBGTimelineIndex: number = -1;
   private customBGMesh: Mesh | null = null;
   private customBGTexture: Texture | null = null;
   private customBGImages: Map<string, string> = new Map(); // filename -> URL
@@ -215,10 +207,7 @@ export class Player implements IPlayer {
             }
             this.tileCameraEvents.get(floor)!.push(action);
         } else if (action.eventType === 'MoveTrack') {
-            if (!this.tileMoveTrackEvents.has(floor)) {
-                this.tileMoveTrackEvents.set(floor, []);
-            }
-            this.tileMoveTrackEvents.get(floor)!.push(action);
+            // handled by TimelineManager during build
         } else if (action.eventType === 'SetHitsound') {
             if (!this.tileSetHitsoundEvents.has(floor)) {
                 this.tileSetHitsoundEvents.set(floor, []);
@@ -289,22 +278,42 @@ export class Player implements IPlayer {
 
     // Calculate cumulative rotations
     this.calculateCumulativeRotations();
-    
+
+    // Precomputed tile positions/rotations as base for MoveTrack computation
+    const basePositions: Vector2[] = this.levelData.tiles.map((t: any) =>
+        new Vector2(t.position[0], t.position[1])
+    );
+    const baseRotations: number[] = this.levelData.tiles.map((_: any, i: number) => {
+        const transform = this.positionTrackManager?.getTileTransform(i);
+        return transform ? transform.rotation * Math.PI / 180 : 0;
+    });
+    const baseScales: Vector2[] = this.levelData.tiles.map((_: any, i: number) => {
+        const transform = this.positionTrackManager?.getTileTransform(i);
+        return transform ? new Vector2(transform.scale.x, transform.scale.y) : new Vector2(1, 1);
+    });
+    const baseOpacities: number[] = this.levelData.tiles.map((_: any, i: number) => {
+        const transform = this.positionTrackManager?.getTileTransform(i);
+        return transform ? transform.opacity : 1;
+    });
+
+    // Initialize Timeline Manager (unified timelines for all event types)
+    this.timelineManager = new TimelineManager(
+      this.levelData.actions || [],
+      this.tileStartTimes,
+      this.tileBPM,
+      basePositions,
+      baseRotations,
+      baseScales,
+      baseOpacities,
+      this.levelData.tiles.length,
+    );
+
     // Update camera controller with calculated values
     this.cameraController = new CameraController(levelData, this.tileStartTimes, this.tileBPM);
     this.cameraController.resetCameraState();
     
     // Build Camera Timeline
     this.cameraController.buildCameraTimeline(this.tileCameraEvents);
-    
-    // Build Bloom Timeline
-    this.buildBloomTimeline();
-    
-    // Build CustomBG Timeline
-    this.buildCustomBGTimeline();
-
-    // Build CustomBG Timeline
-    this.buildCustomBGTimeline();
 
     // Initialize Decoration Manager
     this.decorationManager = new DecorationManager(
@@ -315,26 +324,10 @@ export class Player implements IPlayer {
     );
     this.decorationManager.init();
 
-    // Initialize MoveTrack Manager
-    this.moveTrackManager = new MoveTrackManager(
-      this.levelData as Level,
-      this.tileStartTimes,
-      this.tileBPM
-    );
-    this.moveTrackManager.initializeMoveTrackEvents(this.tileMoveTrackEvents);
+    // Initialize MoveTrack Manager with TimelineManager
+    this.moveTrackManager = new MoveTrackManager(this.timelineManager);
     this.moveTrackManager.setTilesReference(this.tiles);
-
-    // Pass precomputed tile positions/rotations as base for MoveTrack computation.
-    // Needed because tiles may not exist yet when early MoveTrack events fire.
-    const basePositions: Vector2[] = this.levelData.tiles.map((t: any) =>
-        new Vector2(t.position[0], t.position[1])
-    );
     this.moveTrackManager.setBasePositions(basePositions);
-
-    const baseRotations: number[] = this.levelData.tiles.map((_: any, i: number) => {
-        const transform = this.positionTrackManager?.getTileTransform(i);
-        return transform ? transform.rotation * Math.PI / 180 : 0;
-    });
     this.moveTrackManager.setBaseRotations(baseRotations);
 
     // Sync MoveTrack animations to InstancedMeshManager (when instanced rendering is active,
@@ -1371,6 +1364,31 @@ export class Player implements IPlayer {
       this.audioDriftSynced = true;
     }
 
+    // Unified trigger event dispatch from TimelineManager
+    const s = this.levelData.settings;
+    const bpm0 = s.bpm || 100;
+    const spb0 = 60 / bpm0;
+    const ct0 = s.countdownTicks || 4;
+    const cd0 = ct0 * spb0;
+    const t0 = this.elapsedTime / 1000 - cd0;
+
+    // Handle rewind side effects
+    if (this.timelineManager.isRewound(t0)) {
+      this.bloomEnabled = false;
+      this.tileColorManager?.initTileColors();
+      this.tiles?.forEach((_, id) => this.updateTileMeshColor(parseInt(id)));
+    }
+
+    const triggeredEvents = this.timelineManager.getTriggered(t0);
+    for (const ev of triggeredEvents) {
+      switch (ev.eventType) {
+        case 'Bloom': this.processBloomEvent(ev); break;
+        case 'Flash': this.processFlashEvent(ev); break;
+        case 'SetCustomBG': this.processCustomBGEvent(ev); break;
+        case 'RecolorTrack': this.processRecolorEvent(ev); break;
+      }
+    }
+
     this.updatePlanetsPosition();
 
     this.updateCameraFollow(delta);
@@ -1657,6 +1675,9 @@ export class Player implements IPlayer {
     
     this.createPlanets();
     
+    // Reset unified timelines
+    this.timelineManager.reset();
+    
     // Reset MoveTrack animations
     if (this.moveTrackManager) {
         this.moveTrackManager.reset();
@@ -1665,14 +1686,6 @@ export class Player implements IPlayer {
     // Reset camera state
     this.cameraController.setLastCameraTimelineIndex(-1);
     this.cameraController.resetCameraState();
-    
-    // Build Recolor timeline
-    this.buildRecolorTimeline();
-    this.lastRecolorTimelineIndex = -1;
-    
-    // Build Flash timeline
-    this.buildFlashTimeline();
-    this.lastFlashTimelineIndex = -1;
     
     // Reset decorations
     if (this.decorationManager) {
@@ -1735,29 +1748,6 @@ export class Player implements IPlayer {
     }
   }
 
-  private buildBloomTimeline(): void {
-      this.bloomTimeline = [];
-      const entries: { time: number; event: any }[] = [];
-      
-      this.tileEvents.forEach((events, floor) => {
-          const startTime = this.tileStartTimes[floor] || 0;
-          const bpm = this.tileBPM[floor] || 100;
-          const secPerBeat = 60 / bpm;
-          
-          events.forEach(event => {
-              if (event.eventType === 'Bloom') {
-                  const angleOffset = event.angleOffset || 0;
-                  const timeOffset = (angleOffset / 180) * secPerBeat;
-                  const eventTime = startTime + timeOffset;
-                  entries.push({ time: eventTime, event: { ...event, floor } });
-              }
-          });
-      });
-      
-      entries.sort((a, b) => a.time - b.time);
-      this.bloomTimeline = entries;
-  }
-  
   private processBloomEvent(event: any): void {
       const enabled = event.enabled;
       
@@ -1787,29 +1777,6 @@ export class Player implements IPlayer {
           this.bloomEffect.setIntensity(this.bloomIntensity / 100);
           this.bloomEffect.setColor(this.bloomColor);
       }
-  }
-  
-  private buildCustomBGTimeline(): void {
-      this.customBGTimeline = [];
-      const entries: { time: number; event: any }[] = [];
-      
-      this.tileEvents.forEach((events, floor) => {
-          const startTime = this.tileStartTimes[floor] || 0;
-          const bpm = this.tileBPM[floor] || 100;
-          const secPerBeat = 60 / bpm;
-          
-          events.forEach(event => {
-              if (event.eventType === 'SetCustomBG') {
-                  const angleOffset = event.angleOffset || 0;
-                  const timeOffset = (angleOffset / 180) * secPerBeat;
-                  const eventTime = startTime + timeOffset;
-                  entries.push({ time: eventTime, event: { ...event, floor } });
-              }
-          });
-      });
-      
-      entries.sort((a, b) => a.time - b.time);
-      this.customBGTimeline = entries;
   }
   
   private processCustomBGEvent(event: any): void {
@@ -1970,8 +1937,6 @@ export class Player implements IPlayer {
     this.bloomThreshold = 10;
     this.bloomIntensity = 150; 
     this.bloomColor = 'ffffff';
-    this.lastBloomTimelineIndex = -1;
-    this.lastCustomBGTimelineIndex = -1;
     if (this.bloomEffect) {
       this.bloomEffect.setEnabled(false);
       this.bloomEffect.setThreshold(0.5);
@@ -1980,7 +1945,6 @@ export class Player implements IPlayer {
     }
     
     // Reset Flash effect
-    this.lastFlashTimelineIndex = -1;
     if (this.flashEffect) {
       this.flashEffect.stop();
       this.flashEffect.reset();
@@ -2000,7 +1964,6 @@ export class Player implements IPlayer {
         this.reapplyPositionTrackTransforms();
 
         this.tileColorManager.initTileColors();
-        this.lastRecolorTimelineIndex = -1;
         this.tiles.forEach((_, id) => {
             this.updateTileMeshColor(parseInt(id));
         });
@@ -2139,29 +2102,6 @@ export class Player implements IPlayer {
     this.syncInstancedTiles();
   }
 
-  private buildRecolorTimeline(): void {
-    this.recolorTimeline = [];
-    const entries: { time: number; event: any }[] = [];
-    
-    this.tileEvents.forEach((events, floor) => {
-        const startTime = this.tileStartTimes[floor] || 0;
-        const bpm = this.tileBPM[floor] || 100;
-        const secPerBeat = 60 / bpm;
-        
-        events.forEach(event => {
-            if (event.eventType === 'RecolorTrack') {
-                const angleOffset = event.angleOffset || 0;
-                const timeOffset = (angleOffset / 180) * secPerBeat;
-                const eventTime = startTime + timeOffset;
-                entries.push({ time: eventTime, event: { ...event, floor } });
-            }
-        });
-    });
-    
-    entries.sort((a, b) => a.time - b.time);
-    this.recolorTimeline = entries;
-  }
-
   private processRecolorEvent(event: any): void {
     const startIdx = this.tileColorManager.PosRelativeTo(event.startTile, event.floor);
     const endIdx = this.tileColorManager.PosRelativeTo(event.endTile, event.floor);
@@ -2294,29 +2234,6 @@ export class Player implements IPlayer {
             (child.material as SpriteMaterial).rotation = child.userData.baseRotation + tileZ - cameraRotation;
         }
     });
-  }
-
-  private buildFlashTimeline(): void {
-    this.flashTimeline = [];
-    const entries: { time: number; event: any }[] = [];
-    
-    this.tileEvents.forEach((events, floor) => {
-        const startTime = this.tileStartTimes[floor] || 0;
-        const bpm = this.tileBPM[floor] || 100;
-        const secPerBeat = 60 / bpm;
-        
-        events.forEach(event => {
-            if (event.eventType === 'Flash') {
-                const angleOffset = event.angleOffset || 0;
-                const timeOffset = (angleOffset / 180) * secPerBeat;
-                const eventTime = startTime + timeOffset;
-                entries.push({ time: eventTime, event: { ...event, floor } });
-            }
-        });
-    });
-    
-    entries.sort((a, b) => a.time - b.time);
-    this.flashTimeline = entries;
   }
 
   private processFlashEvent(event: any): void {
@@ -2973,25 +2890,6 @@ export class Player implements IPlayer {
     const countdownDuration = countdownTicks * initialSecPerBeat;
     const timeInLevel = (this.elapsedTime / 1000) - countdownDuration;
     
-    // Process Recolor timeline
-    if (this.lastRecolorTimelineIndex >= 0) {
-        const currentEntry = this.recolorTimeline[this.lastRecolorTimelineIndex];
-        if (currentEntry && timeInLevel < currentEntry.time) {
-            this.tileColorManager.initTileColors();
-            this.lastRecolorTimelineIndex = -1;
-            this.tiles.forEach((_, id) => {
-                this.updateTileMeshColor(parseInt(id));
-            });
-        }
-    }
-
-    while (this.lastRecolorTimelineIndex + 1 < this.recolorTimeline.length && 
-           this.recolorTimeline[this.lastRecolorTimelineIndex + 1].time <= timeInLevel) {
-        this.lastRecolorTimelineIndex++;
-        const entry = this.recolorTimeline[this.lastRecolorTimelineIndex];
-        this.processRecolorEvent(entry.event);
-    }
-
     if (timeInLevel < 0) {
         // Countdown phase - handled by standard logic
     }
@@ -3199,63 +3097,36 @@ export class Player implements IPlayer {
       }
       this.cameraController.setLastCameraTimelineIndex(newIdx);
       
-      // Process Bloom events
-      if (this.lastBloomTimelineIndex >= 0) {
-          const currentEntry = this.bloomTimeline[this.lastBloomTimelineIndex];
-          if (currentEntry && timeInLevel < currentEntry.time) {
-              this.bloomEnabled = false;
-              this.lastBloomTimelineIndex = -1;
-          }
-      }
-      
-      while (this.lastBloomTimelineIndex + 1 < this.bloomTimeline.length && 
-             this.bloomTimeline[this.lastBloomTimelineIndex + 1].time <= timeInLevel) {
-          this.lastBloomTimelineIndex++;
-          const entry = this.bloomTimeline[this.lastBloomTimelineIndex];
-          this.processBloomEvent(entry.event);
-      }
-      
-      // Process CustomBG events
-      while (this.lastCustomBGTimelineIndex + 1 < this.customBGTimeline.length && 
-             this.customBGTimeline[this.lastCustomBGTimelineIndex + 1].time <= timeInLevel) {
-          this.lastCustomBGTimelineIndex++;
-          const entry = this.customBGTimeline[this.lastCustomBGTimelineIndex];
-          this.processCustomBGEvent(entry.event);
-      }
-      
       // Update custom background parallax
       this.updateCustomBGParallax();
       
-      // Process Flash events
-      while (this.lastFlashTimelineIndex + 1 < this.flashTimeline.length && 
-             this.flashTimeline[this.lastFlashTimelineIndex + 1].time <= timeInLevel) {
-          this.lastFlashTimelineIndex++;
-          const entry = this.flashTimeline[this.lastFlashTimelineIndex];
-          this.processFlashEvent(entry.event);
+      // Reset follow smooth when tile advances (matching scrCamera.UpdateFollowCam)
+      if (this.currentTileIndex !== this._lastCamSmoothTile) {
+        this._lastCamSmoothTile = this.currentTileIndex;
+        this.cameraController.resetSmooth({
+          x: this.cameraPosition.x,
+          y: this.cameraPosition.y,
+        });
       }
-      
-      // Get interpolated camera values
-      const interpolated = this.cameraController.getInterpolatedValues(this.elapsedTime);
-      
-      // Calculate target position based on camera mode
-      const target = this.cameraController.calculateTargetPosition(this.currentPivotPosition);
 
-      // Apply smoothing
       const currentBPM = (this.tileBPM && this.tileBPM[this.currentTileIndex]) || 100;
-      const smoothingIndex = 15 * Math.pow(100 / Math.max(1, currentBPM), 0.15);
-      
-      const step = 1.0 - Math.pow(1.0 - 1.0 / smoothingIndex, delta * 60);
-      
-      this.cameraPosition.x += (target.x - this.cameraPosition.x) * step;
-      this.cameraPosition.y += (target.y - this.cameraPosition.y) * step;
 
-      // Update camera position
+      // Official ADOFAI lerp-based smooth follow (matching scrCamera.UpdateFollowCam)
+      const smoothPos = this.cameraController.getSmoothPosition(
+        this.currentPivotPosition,
+        currentBPM,
+        delta,
+        this.elapsedTime,
+      );
+      this.cameraPosition.x = smoothPos.x;
+      this.cameraPosition.y = smoothPos.y;
       this.camera.position.x = this.cameraPosition.x;
       this.camera.position.y = this.cameraPosition.y;
-      
+
+      // Get interpolated values for zoom and rotation
+      const interpolated = this.cameraController.getInterpolatedValues(this.elapsedTime);
+
       // Zoom: ADOFAI zoom 100 = normal view, 200 = 2x zoomed out
-      // js OrthographicCamera: zoom = 1 is normal, zoom > 1 is zoomed in
-      // So: zoom = 100 / ADOFAI.zoom
       this.zoom = 100 / interpolated.zoom;
       this.camera.zoom = this.zoom * this.zoomMultiplier;
       this.camera.updateProjectionMatrix();

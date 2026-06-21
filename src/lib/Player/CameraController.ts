@@ -72,6 +72,10 @@ export class CameraController {
     private tileStartTimes: number[];
     private tileBPM: number[];
 
+    // Follow smoothing (matching C# scrCamera.UpdateFollowCam)
+    private smoothFrom: { x: number; y: number } = { x: 0, y: 0 };
+    private smoothTimer: number = 0;
+
     constructor(levelData: any, tileStartTimes: number[], tileBPM: number[]) {
         this.levelData = levelData;
         this.tileStartTimes = tileStartTimes;
@@ -109,6 +113,81 @@ export class CameraController {
     public getLastCameraTimelineIndex(): number { return this.lastCameraTimelineIndex; }
     public setLastCameraTimelineIndex(i: number): void { this.lastCameraTimelineIndex = i; }
 
+    // ── 跳转到任意时刻 ──────────────────────────────────────────────────
+
+    public seek(time: number, pivot?: { x: number; y: number }): void {
+        this.resetCameraState();
+        const timeline = this.cameraTimeline;
+
+        for (const entry of timeline) {
+            if (entry.time > time) break;
+            this.processCameraEvent(
+                entry.event,
+                entry.event.floor || 0,
+                time * 1000,
+                undefined,
+                pivot,
+            );
+        }
+
+        const interp = this.getInterpolatedValues(time);
+        this.cameraMode.position.x = interp.x;
+        this.cameraMode.position.y = interp.y;
+        this.cameraMode.rotation = interp.rotation;
+        this.cameraMode.zoom = interp.zoom;
+        this.resetTransitions();
+    }
+
+    // ── 跟随平滑（匹配 C# scrCamera.UpdateFollowCam） ─────────────────
+
+    /**
+     * 等价 C# UpdateFollowCam() — 当 planet 前进到新 tile 时调用。
+     * 记录当前相机位置为平滑起点，重置计时器。
+     */
+    public resetSmooth(currentPos: { x: number; y: number }): void {
+        this.smoothFrom = { x: currentPos.x, y: currentPos.y };
+        this.smoothTimer = 0;
+    }
+
+    /**
+     * 等价 C# scrCamera.Update 中的 Lerp 平滑逻辑。
+     * @param pivot 星球位置（对应 C# topos = furthestPlanet.position）
+     * @param bpm 当前 BPM
+     * @param delta 帧增量（秒）
+     * @returns 平滑后的相机位置 {x, y}
+     */
+    public getSmoothPosition(
+        pivot: { x: number; y: number },
+        bpm: number,
+        delta: number,
+        elapsedTime: number,
+    ): { x: number; y: number } {
+        // Use tween-interpolated offsets so smooth follow chases the moving target
+        const interp = this.getInterpolatedValues(elapsedTime);
+        const target = this.calculateTargetPosition(pivot, interp);
+
+        // C#: camspeed = crotchet * 2 = (60 / bpm) * 2 = 120 / bpm
+        const crotchet = 60 / Math.max(bpm, 1);
+        const camSpeed = crotchet * 2;
+
+        // distance-based speed boost (C#: num5 modifier)
+        const dx = target.x - this.smoothFrom.x;
+        const dy = target.y - this.smoothFrom.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        let speedMult = 1;
+        if (dist > 5) {
+            speedMult = Math.min(1, (dist - 5) / (10 - 5)) * 0.5 + 1;
+        }
+
+        this.smoothTimer += delta;
+        const t = Math.min(this.smoothTimer * speedMult / camSpeed, 1);
+
+        return {
+            x: this.smoothFrom.x + (target.x - this.smoothFrom.x) * t,
+            y: this.smoothFrom.y + (target.y - this.smoothFrom.y) * t,
+        };
+    }
+
     // ── 状态重置 ──────────────────────────────────────────────────────────
 
     public resetCameraState(): void {
@@ -132,6 +211,8 @@ export class CameraController {
             this.cameraMode = this.defaultCameraMode();
         }
         this.resetTransitions();
+        this.smoothFrom = { x: 0, y: 0 };
+        this.smoothTimer = 0;
     }
 
     // ── 时间线构建 ────────────────────────────────────────────────────────
@@ -237,6 +318,13 @@ export class CameraController {
         pivotPos?: { x: number; y: number },
     ): void {
         if (!isEventActive(event)) return;
+
+        // When a camera event fires, reset smooth follow from the current camera position
+        // (matching C#: camera events tween camParent, overriding follow mode)
+        if (cameraSnapshot) {
+            this.smoothFrom = { x: cameraSnapshot.position.x, y: cameraSnapshot.position.y };
+            this.smoothTimer = 0;
+        }
 
         // Step 1 — 解码事件属性（对应 C# Decode()）
         const TILE_SIZE = 1.0;
