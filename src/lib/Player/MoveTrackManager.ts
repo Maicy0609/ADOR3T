@@ -19,6 +19,7 @@ export class MoveTrackManager {
 
     private currentTime: number = 0;
     private activeTileIndices: Set<number> = new Set();
+    private pendingFinalApply: Set<number> = new Set();
 
     private static playCounter: number = 0;
     private debugPlayId: number = 0;
@@ -64,19 +65,27 @@ export class MoveTrackManager {
 
     public update(elapsedTimeMs: number): void {
         this.currentTime = elapsedTimeMs / 1000;
-        this.activeTileIndices.clear();
         this.updateTileAnimations();
     }
 
     private updateTileAnimations(): void {
         if (!this.tiles) return;
         const time = this.currentTime;
+        const newActiveIndices = new Set<number>();
 
         for (const tileIdx of this.timelineManager.getAllTileIndices()) {
-            if (!this.timelineManager.isTileActive(tileIdx, time)) continue;
-            this.activeTileIndices.add(tileIdx);
             const mesh = this.tiles.get(tileIdx.toString());
             if (!mesh) continue;
+
+            const isActive = this.timelineManager.isTileActive(tileIdx, time);
+
+            if (isActive) {
+                newActiveIndices.add(tileIdx);
+            } else if (this.pendingFinalApply.has(tileIdx)) {
+                this.pendingFinalApply.delete(tileIdx);
+            } else {
+                continue;
+            }
 
             const dirty = this.timelineManager.applyToTileMesh(tileIdx, mesh, time);
             if (dirty && this.tileTransformChanged) {
@@ -89,6 +98,13 @@ export class MoveTrackManager {
                 );
             }
         }
+
+        for (const tileIdx of this.activeTileIndices) {
+            if (!newActiveIndices.has(tileIdx)) {
+                this.pendingFinalApply.add(tileIdx);
+            }
+        }
+        this.activeTileIndices = newActiveIndices;
     }
 
     public getPlanetFollowOffset(tileIndex: number, currentTime: number): { x: number; y: number; rotation: number } {
@@ -135,6 +151,7 @@ export class MoveTrackManager {
     public reset(): void {
         this.debugPlayId = ++MoveTrackManager.playCounter;
         this.activeTileIndices.clear();
+        this.pendingFinalApply.clear();
         const playLabel = `[MoveTrackManager][Play#${this.debugPlayId}]`;
 
         if (this.tiles) {

@@ -72,6 +72,7 @@ export class Player implements IPlayer {
   // Camera settings
   private zoom: number = 1;
   private zoomMultiplier: number = 1.0;
+  private adoZoom: number = 100;
   private cameraPosition: Vector3 = new Vector3(0, 0, 0);
   private _lastCamSmoothTile: number = -1;
   
@@ -1443,7 +1444,9 @@ export class Player implements IPlayer {
       Math.max(0, timeInLevelMs),
       this.camera.position,
       this.camera.rotation.z,
-      this.camera.zoom
+      this.camera.zoom,
+      this.timelineManager,
+      this.adoZoom
     );
   }
 
@@ -3127,6 +3130,7 @@ export class Player implements IPlayer {
       const interpolated = this.cameraController.getInterpolatedValues(this.elapsedTime);
 
       // Zoom: ADOFAI zoom 100 = normal view, 200 = 2x zoomed out
+      this.adoZoom = interpolated.zoom;
       this.zoom = 100 / interpolated.zoom;
       this.camera.zoom = this.zoom * this.zoomMultiplier;
       this.camera.updateProjectionMatrix();

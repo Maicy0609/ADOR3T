@@ -1,5 +1,6 @@
-import { Group, Mesh, Sprite, Vector2, Color, Texture, MeshBasicMaterial, SpriteMaterial, Material, CanvasTexture, CircleGeometry, RingGeometry, BufferGeometry, BufferAttribute, SRGBColorSpace, DoubleSide, Scene, TextureLoader, PlaneGeometry, Vector3, WebGLRenderTarget, Float32BufferAttribute } from 'three';
+import { Group, Mesh, Sprite, Vector2, Color, Texture, MeshBasicMaterial, SpriteMaterial, Material, CanvasTexture, CircleGeometry, RingGeometry, BufferGeometry, BufferAttribute, SRGBColorSpace, DoubleSide, Scene, TextureLoader, PlaneGeometry, Vector3, WebGLRenderTarget, Float32BufferAttribute, NormalBlending, AdditiveBlending, MultiplyBlending, CustomBlending, AddEquation, ReverseSubtractEquation, LinearFilter, LinearMipMapLinearFilter, Blending } from 'three';
 import { EasingFunctions } from './Easing';
+import { TimelineManager } from './TimelineManager';
 import createTrackMesh from '../Geo/mesh_reserve';
 import { isEventActive } from './EventUtils';
 import { getIconTexture, getIconTextureForCustomFloor, createIconSprite } from './IconLoader';
@@ -18,6 +19,16 @@ function parseDecoColor(hex: string | undefined, fallback: string = 'ffffff'): [
     return ['#' + raw.slice(0, 6), 1];
 }
 
+function getBlendMode(mode: DecorationBlendMode): number {
+    switch (mode) {
+        case DecorationBlendMode.Additive: return AdditiveBlending;
+        case DecorationBlendMode.Multiply: return MultiplyBlending;
+        case DecorationBlendMode.Screen: return CustomBlending;
+        case DecorationBlendMode.Subtract: return CustomBlending;
+        default: return NormalBlending;
+    }
+}
+
 export enum DecorationType {
     Image = 'Image',
     Text = 'Text',
@@ -30,7 +41,27 @@ export enum DecPlacementType {
     Tile = 'Tile',
     Camera = 'Camera',
     CameraAspect = 'CameraAspect',
-    LastPosition = 'LastPosition'
+    LastPosition = 'LastPosition',
+    RedPlanet = 'RedPlanet',
+    BluePlanet = 'BluePlanet',
+    GreenPlanet = 'GreenPlanet'
+}
+
+export enum DecorationBlendMode {
+    None = 'None',
+    Additive = 'Additive',
+    Screen = 'Screen',
+    Multiply = 'Multiply',
+    Overlay = 'Overlay',
+    Subtract = 'Subtract',
+    Divide = 'Divide',
+}
+
+export enum MaskingType {
+    None = 'None',
+    Mask = 'Mask',
+    VisibleInsideMask = 'VisibleInsideMask',
+    VisibleOutsideMask = 'VisibleOutsideMask',
 }
 
 export interface DecorationConfig {
@@ -54,6 +85,8 @@ export interface DecorationConfig {
     lockScale: boolean;
     lockRotation: boolean;
     visible: boolean;
+    scaleMultiplier: number;
+    stickToFloor: boolean;
     floor?: number;
     animating: boolean;
     animationStart: number;
@@ -70,6 +103,10 @@ export interface DecorationConfig {
     trackOpacity?: number;
     trackStyle?: string;
     trackIcon?: string;
+    blendMode: DecorationBlendMode;
+    maskingType: MaskingType;
+    maskingTarget?: string;
+    imageSmoothing?: boolean;
 }
 
 const defaultDecorationConfig: DecorationConfig = {
@@ -92,6 +129,12 @@ const defaultDecorationConfig: DecorationConfig = {
     lockScale: false,
     lockRotation: false,
     visible: true,
+    scaleMultiplier: 1,
+    stickToFloor: false,
+    blendMode: DecorationBlendMode.None,
+    maskingType: MaskingType.None,
+    maskingTarget: '',
+    imageSmoothing: false,
     animating: false,
     animationStart: 0,
     animationDuration: 0,
@@ -144,20 +187,28 @@ class DecorationInstance {
         this._isStaticWorld = c.relativeTo === DecPlacementType.Tile
             && c.parallax[0] === 100 && c.parallax[1] === 100
             && c.parallaxOffset[0] === 0 && c.parallaxOffset[1] === 0
-            && !c.lockRotation && !c.lockScale;
+            && !c.lockRotation && !c.lockScale
+            && !c.stickToFloor;
     }
 
     public setupVisual(texture: Texture | null): void {
         this.clearVisual();
         if (this.config.decorationType === DecorationType.Object) return;
+        const blend = getBlendMode(this.config.blendMode);
         if (!texture) {
             const g = new PlaneGeometry(1, 1);
-            const m = new MeshBasicMaterial({ color: 0xff00ff, transparent: true, opacity: 0.5, side: DoubleSide });
+            const m = new MeshBasicMaterial({ color: 0xff00ff, transparent: true, opacity: 0.5, side: DoubleSide, depthWrite: false });
             this.mesh = new Mesh(g, m);
             this.container.add(this.mesh);
         } else {
+            if (this.config.imageSmoothing) {
+                texture.magFilter = LinearFilter;
+                texture.minFilter = LinearMipMapLinearFilter;
+                texture.needsUpdate = true;
+            }
             const mat = new SpriteMaterial({
-                map: texture, color: 0xffffff, transparent: true, opacity: this.currentOpacity
+                map: texture, color: 0xffffff, transparent: true, opacity: this.currentOpacity,
+                blending: blend as Blending, depthWrite: false,
             });
             this.sprite = new Sprite(mat);
             let ar = 1;
@@ -166,6 +217,10 @@ class DecorationInstance {
                 ? this.sprite.scale.set(ar, 1, 1)
                 : this.sprite.scale.set(1, 1 / ar, 1);
             this.sprite.center.set(0.5, 0.5);
+            if (this.config.maskingType === MaskingType.Mask) {
+                (this.sprite as any).mask = null;
+                this.sprite.visible = false;
+            }
             this.container.add(this.sprite);
         }
         this.updateTransform();
@@ -181,43 +236,98 @@ class DecorationInstance {
     public updateTransform(): void {
         this.container.rotation.z = this.currentRotation * Math.PI / 180;
         const d = this.config.depth;
+        // C# sorting layers: "Default" (d<0, in front of tiles) | "Floor" (tiles) | "Bg" (d>=0, behind tiles)
+        // sortingOrder = -depth. Tiles use renderOrder = -index (range 0 to -N).
+        // Camera at z=10, looking toward -z. Larger z = closer to camera = in front.
         let z: number, ro: number;
-        if (d < 0) { z = 0.2 + d * 0.1; ro = 200 + d; }
-        else if (d === 0) { z = 0.15; ro = 50; }
-        else { z = -0.5 - d * 0.5; ro = -d * 10; }
+        if (d < 0) {
+            z = 0.1 - d * 0.1;       // d=-5 → z=0.6 (closer to camera, in front of tiles)
+            ro = -d;                   // positive, in front of tile renderOrders (≤0)
+        } else if (d === 0) {
+            z = -0.1;                  // slightly behind tiles
+            ro = -10000;               // well behind all tiles
+        } else {
+            z = -0.1 - d * 0.1;       // d=5 → z=-0.6 (further from camera, behind tiles)
+            ro = -10000 - d;           // even more behind
+        }
         this.container.position.set(this.currentPosition.x, this.currentPosition.y, z);
         if (this.mesh) { this.mesh.renderOrder = ro; (this.mesh.material as MeshBasicMaterial).color.copy(this.currentColor); (this.mesh.material as MeshBasicMaterial).opacity = this.currentOpacity; }
         if (this.sprite) { this.sprite.renderOrder = ro; (this.sprite.material as SpriteMaterial).opacity = this.currentOpacity; }
         if (this.iconSprite) { this.iconSprite.renderOrder = ro + 1; (this.iconSprite.material as SpriteMaterial).opacity = this.currentOpacity; }
     }
 
-    public updatePosition(camPos: Vector3, camRot: number, camZoom: number): void {
+    public updatePosition(camPos: Vector3, camRot: number, camZoom: number, tilePositions?: Map<number, Vector3>, adoZoom?: number): void {
         if (this._isStaticWorld) {
             const px = camPos.x - this.pivotPos.x;
             const py = camPos.y - this.pivotPos.y;
             this.container.position.x = this.currentPosition.x + px;
             this.container.position.y = this.currentPosition.y + py;
+            let camScaleMul = 1;
+            if (this.config.lockScale && adoZoom && adoZoom > 0) camScaleMul = 100 / adoZoom;
+            camScaleMul *= this.config.scaleMultiplier;
+            let floorScaleMul = 1;
+            if (this.config.stickToFloor && tilePositions?.has(this.config.floor ?? -1)) {
+                const ts = tilePositions!.get(this.config.floor ?? -1)!;
+                floorScaleMul = ts.z;
+            }
+            this.container.scale.set(this.currentScale.x * camScaleMul * floorScaleMul, this.currentScale.y * camScaleMul * floorScaleMul, 1);
             return;
         }
-        let sm = 1;
-        if (this.config.lockScale && camZoom > 0) sm = 100 / camZoom;
+        // camScaleMultiplier: C# = orthoSize * 0.2 / (camZoom / 100), orthoSize=5 → 100/adoZoom
+        let camScaleMul = 1;
+        if (this.config.lockScale && adoZoom && adoZoom > 0) camScaleMul = 100 / adoZoom;
+        camScaleMul *= this.config.scaleMultiplier;
+        let floorScaleMul = 1;
+        if (this.config.stickToFloor && tilePositions?.has(this.config.floor ?? -1)) {
+            const ts = tilePositions!.get(this.config.floor ?? -1)!;
+            floorScaleMul = ts.z;
+        }
+        const totalScaleMul = camScaleMul * floorScaleMul;
+        // Parallax offset multiplier: WebADOFAI = scaleMultiplier/100 * (lockScale ? camScaleRaw : 1)
+        const camScaleRaw = (this.config.lockScale && adoZoom && adoZoom > 0) ? 100 / adoZoom : 1;
+        const parallaxOffsetMul = (this.config.scaleMultiplier / 100) * camScaleRaw;
         const ct = this.config.relativeTo;
+        let posX = 0, posY = 0;
         if (ct === DecPlacementType.Camera || ct === DecPlacementType.CameraAspect) {
-            this.container.position.x = camPos.x + this.currentPosition.x;
-            this.container.position.y = camPos.y + this.currentPosition.y;
+            // WebADOFAI resolveStatePivotWorldPosition: convert pixel coords → world coords
+            // pixelX / 20 * viewWidth, then rotate by camera angle
+            const viewH = 8 / camZoom;
+            const aspect = (typeof window !== 'undefined' && window.innerWidth > 0) ? window.innerWidth / window.innerHeight : 16 / 9;
+            const viewW = viewH * aspect;
+            const aspectCorrection = ct === DecPlacementType.CameraAspect ? viewH / viewW : 1;
+            let worldOffsetX = this.currentPosition.x * aspectCorrection / 20 * viewW;
+            let worldOffsetY = this.currentPosition.y / 20 * viewH;
+            const cosR = Math.cos(camRot);
+            const sinR = Math.sin(camRot);
+            const rotatedX = worldOffsetX * cosR - worldOffsetY * sinR;
+            const rotatedY = worldOffsetX * sinR + worldOffsetY * cosR;
+            posX = camPos.x + rotatedX + this.currentParallaxOffset.x * parallaxOffsetMul;
+            posY = camPos.y + rotatedY + this.currentParallaxOffset.y * parallaxOffsetMul;
             this.container.rotation.z = this.config.lockRotation
                 ? camRot + this.currentRotation * Math.PI / 180
                 : this.currentRotation * Math.PI / 180;
         } else {
+            let followOffsetX = 0, followOffsetY = 0;
+            if (ct === DecPlacementType.RedPlanet || ct === DecPlacementType.BluePlanet || ct === DecPlacementType.GreenPlanet) {
+                // followPlanet position would be added here if planet positions were tracked
+            }
+            let stickOffsetX = 0, stickOffsetY = 0;
+            if (this.config.stickToFloor && tilePositions?.has(this.config.floor ?? -1)) {
+                const tp = tilePositions!.get(this.config.floor ?? -1)!;
+                stickOffsetX = tp.x - this.startPos.x;
+                stickOffsetY = tp.y - this.startPos.y;
+            }
             const px = (camPos.x - this.pivotPos.x) * this.currentParallax.x;
             const py = (camPos.y - this.pivotPos.y) * this.currentParallax.y;
-            this.container.position.x = this.currentPosition.x + px + this.currentParallaxOffset.x;
-            this.container.position.y = this.currentPosition.y + py + this.currentParallaxOffset.y;
+            posX = this.currentPosition.x + px + this.currentParallaxOffset.x * parallaxOffsetMul + followOffsetX + stickOffsetX;
+            posY = this.currentPosition.y + py + this.currentParallaxOffset.y * parallaxOffsetMul + followOffsetY + stickOffsetY;
             this.container.rotation.z = this.config.lockRotation
                 ? camRot + this.currentRotation * Math.PI / 180
                 : this.currentRotation * Math.PI / 180;
         }
-        this.container.scale.set(this.currentScale.x * sm, this.currentScale.y * sm, 1);
+        this.container.position.x = posX;
+        this.container.position.y = posY;
+        this.container.scale.set(this.currentScale.x * totalScaleMul, this.currentScale.y * totalScaleMul, 1);
     }
 
     public updateAnimation(now: number): void {
@@ -409,6 +519,7 @@ export class DecorationManager {
         } else if (relativeTo === DecPlacementType.Camera || relativeTo === DecPlacementType.CameraAspect) {
             pos.x /= ts; pos.y /= ts;
         }
+        // RedPlanet/BluePlanet/GreenPlanet: startPos = position * tileSize (no floor offset)
         return pos;
     }
 
@@ -450,6 +561,8 @@ export class DecorationManager {
             lockScale: event.lockScale === true,
             lockRotation: event.lockRotation === true,
             visible: event.visible !== undefined ? event.visible : true,
+            scaleMultiplier: event.scaleMultiplier !== undefined ? event.scaleMultiplier : 1,
+            stickToFloor: event.stickToFloor === true,
             floor,
             objectType: event.objectType,
             planetColorType: event.planetColorType,
@@ -460,6 +573,10 @@ export class DecorationManager {
             trackOpacity: event.trackOpacity,
             trackStyle: event.trackStyle,
             trackIcon: event.trackIcon,
+            blendMode: event.blendMode || DecorationBlendMode.None,
+            maskingType: event.maskingType || MaskingType.None,
+            maskingTarget: event.maskingTarget || '',
+            imageSmoothing: event.imageSmoothing === true,
         };
 
         const deco = new DecorationInstance(config);
@@ -757,7 +874,7 @@ export class DecorationManager {
         return this.texturesLoaded.size;
     }
 
-    public update(elapsedTime: number, cameraPosition: Vector3, cameraRotation: number, cameraZoom: number): void {
+    public update(elapsedTime: number, cameraPosition: Vector3, cameraRotation: number, cameraZoom: number, timelineManager?: TimelineManager, adoZoom?: number): void {
         const now = elapsedTime / 1000;
         this.processEvents(now);
         const camX = cameraPosition.x;
@@ -768,20 +885,52 @@ export class DecorationManager {
         const list = this.decoList;
         const len = list.length;
         let animCount = 0;
+        let needsTilePositions = false;
         for (let i = 0; i < len; i++) {
             const d = list[i];
             if (d.config.animating) { d.updateAnimation(now); animCount++; }
+            if (d.config.stickToFloor || d.config.relativeTo === DecPlacementType.RedPlanet
+                || d.config.relativeTo === DecPlacementType.BluePlanet
+                || d.config.relativeTo === DecPlacementType.GreenPlanet) {
+                needsTilePositions = true;
+            }
         }
-        if (!camMoved && animCount === 0) return;
-        const vr = 20 / camZ + 5;
-        const minX = camX - vr, maxX = camX + vr;
-        const minY = camY - vr, maxY = camY + vr;
+        // Build current tile positions for stickToFloor/followPlanet decorations
+        let tilePositions: Map<number, Vector3> | undefined;
+        if (needsTilePositions && timelineManager) {
+            tilePositions = new Map();
+            for (const [idx, pos] of timelineManager.sampleAllPosition(now)) {
+                const sx = timelineManager.sample(`tile:${idx}`, 'scaleX', now);
+                const sy = timelineManager.sample(`tile:${idx}`, 'scaleY', now);
+                const scale = sx !== undefined ? ((sx + (sy ?? sx)) / 2) : 1;
+                tilePositions.set(idx, new Vector3(pos.x, pos.y, scale));
+            }
+        }
+        if (!camMoved && animCount === 0 && !tilePositions) return;
+        // Compute camera visible area in world units
+        // Three.js ortho camera: top=4, bottom=-4, baseFrustumSize=8
+        const viewH = 8 / camZ;
+        const aspect = (typeof window !== 'undefined' && window.innerWidth > 0) ? window.innerWidth / window.innerHeight : 16 / 9;
+        const halfW = viewH * aspect * 0.5;
+        const halfH = viewH * 0.5;
+        const minX = camX - halfW, maxX = camX + halfW;
+        const minY = camY - halfH, maxY = camY + halfH;
         for (let i = 0; i < len; i++) {
             const d = list[i];
-            d.updatePosition(cameraPosition, cameraRotation, camZ);
+            d.updatePosition(cameraPosition, cameraRotation, camZ, tilePositions, adoZoom);
             if (!d.config.visible) continue;
             const p = d.container.position;
-            const vis = p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY;
+            // Compute decoration half-size from sprite/mesh scale * container scale
+            const csx = Math.abs(d.container.scale.x);
+            const csy = Math.abs(d.container.scale.y);
+            let hw = csx, hh = csy;
+            if (d.sprite) {
+                hw = Math.abs(d.sprite.scale.x) * csx * 0.5;
+                hh = Math.abs(d.sprite.scale.y) * csy * 0.5;
+            } else if (d.mesh) {
+                hw = hh = Math.max(csx, csy) * 0.5;
+            }
+            const vis = p.x + hw >= minX && p.x - hw <= maxX && p.y + hh >= minY && p.y - hh <= maxY;
             if (d.container.visible !== vis) d.container.visible = vis;
         }
     }
@@ -852,7 +1001,7 @@ export class DecorationManager {
                 }
                 if (event.parallax !== undefined && !event.disabled?.parallax) {
                     const p = this.parseVec2(event.parallax, [100, 100]);
-                    target.parallax = [p[0] / 100, p[1] / 100];
+                    target.parallax = [p[0], p[1]];
                 }
                 if (event.parallaxOffset !== undefined && !event.disabled?.parallaxOffset) {
                     const po = this.parseVec2(event.parallaxOffset, [0, 0]);
@@ -991,6 +1140,15 @@ export class DecorationManager {
             case 'LastPosition':
             case DecPlacementType.LastPosition:
                 return DecPlacementType.LastPosition;
+            case 'RedPlanet':
+            case DecPlacementType.RedPlanet:
+                return DecPlacementType.RedPlanet;
+            case 'BluePlanet':
+            case DecPlacementType.BluePlanet:
+                return DecPlacementType.BluePlanet;
+            case 'GreenPlanet':
+            case DecPlacementType.GreenPlanet:
+                return DecPlacementType.GreenPlanet;
             default: return DecPlacementType.Tile;
         }
     }

@@ -86,7 +86,8 @@ export class TimelineManager {
                 const start = Math.min(startTile, endTile);
                 const end = Math.max(startTile, endTile);
                 const gapLength = action.gapLength || 0;
-                const duration = (action.duration ?? 1) * secPerBeat;
+                const rawDuration = (action.duration ?? 1) * secPerBeat;
+                const duration = rawDuration || 1;
 
                 for (let i = start; i <= end; i += 1 + gapLength) {
                     if (i < 0) continue;
