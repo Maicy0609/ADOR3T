@@ -441,15 +441,9 @@ export default function EditorPage() {
                     setSliderValue(v)
                     const p = previewerRef.current
                     if (p) {
-                      p.seekTo(v, true)
+                      p.seekTo(v, !playModeActive)
                       const idx = p.getTileIndexAtTime(v)
                       p.selectTile(idx, false)
-                    }
-                  }}
-                  onPointerUp={() => {
-                    const p = previewerRef.current
-                    if (p && playModeActive) {
-                      p.seekTo(sliderValue, false)
                     }
                   }}
                   className="flex-1 min-w-[10rem] h-1.5 cursor-pointer accent-blue-500"
