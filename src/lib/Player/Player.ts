@@ -2166,6 +2166,11 @@ export class Player implements IPlayer {
         // Reset MoveTrack (restore tiles to initial positions)
         if (this.moveTrackManager) {
           this.moveTrackManager.reset();
+          this.moveTrackManager.fastForwardTo(0);
+          for (const idx of this.timelineManager.getAllTileIndices()) {
+            this.dirtyTiles.add(idx);
+          }
+          this.syncInstancedTiles();
         }
     
         // Re-apply PositionTrack transforms (PositionTrack is global and applies at all times)
@@ -2259,22 +2264,11 @@ export class Player implements IPlayer {
     }
 
     if (this.cameraController) {
-      this.cameraController.seek(timeInLevel, this.currentPivotPosition);
-      // Update absolute camera position for non-play/paused display
-      if (!this.isPlaying || this.isPaused) {
-        const interp = this.cameraController.getInterpolatedValues(this.elapsedTime);
+      // During paused seek, update pivot (planet position) before camera seek
+      if (this.isPaused) {
         const seekIdx = this.getTileIndexAtTime(this.elapsedTime);
         const seekTile = this.levelData.tiles?.[seekIdx];
-        const pivot = seekTile?.position
-          ? { x: seekTile.position[0], y: seekTile.position[1] }
-          : this.currentPivotPosition;
-        const target = this.cameraController.calculateTargetPosition(pivot, interp);
-        this.cameraPosition.x = target.x;
-        this.cameraPosition.y = target.y;
-        this.camera.position.x = target.x;
-        this.camera.position.y = target.y;
-        // Update planet position for paused seek
-        if (this.isPaused && seekTile?.position) {
+        if (seekTile?.position) {
           this.currentTileIndex = seekIdx;
           this.currentPivotPosition.x = seekTile.position[0];
           this.currentPivotPosition.y = seekTile.position[1];
@@ -2284,7 +2278,30 @@ export class Player implements IPlayer {
           if (this.planetBlue) {
             this.planetBlue.position.set(seekTile.position[0], seekTile.position[1], 1.0);
           }
+          // Reset trail cache to prevent stale trail positions
+          this.trailCacheWriteIdx = 0;
+          this.trailCacheReady = false;
+          this.recordTrailCache(timeInLevel);
         }
+      }
+      this.cameraController.seek(timeInLevel, this.currentPivotPosition);
+      // Update absolute camera position for non-play/paused display
+      if (!this.isPlaying || this.isPaused) {
+        const interp = this.cameraController.getInterpolatedValues(this.elapsedTime);
+        const pivot = this.isPaused
+          ? this.currentPivotPosition
+          : (() => {
+              const seekIdx = this.getTileIndexAtTime(this.elapsedTime);
+              const seekTile = this.levelData.tiles?.[seekIdx];
+              return seekTile?.position
+                ? { x: seekTile.position[0], y: seekTile.position[1] }
+                : this.currentPivotPosition;
+            })();
+        const target = this.cameraController.calculateTargetPosition(pivot, interp);
+        this.cameraPosition.x = target.x;
+        this.cameraPosition.y = target.y;
+        this.camera.position.x = target.x;
+        this.camera.position.y = target.y;
       }
     }
 
