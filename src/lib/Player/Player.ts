@@ -2260,8 +2260,8 @@ export class Player implements IPlayer {
 
     if (this.cameraController) {
       this.cameraController.seek(timeInLevel, this.currentPivotPosition);
-      // Update absolute camera position for non-play display
-      if (!this.isPlaying) {
+      // Update absolute camera position for non-play/paused display
+      if (!this.isPlaying || this.isPaused) {
         const interp = this.cameraController.getInterpolatedValues(this.elapsedTime);
         const seekIdx = this.getTileIndexAtTime(this.elapsedTime);
         const seekTile = this.levelData.tiles?.[seekIdx];
@@ -2273,6 +2273,18 @@ export class Player implements IPlayer {
         this.cameraPosition.y = target.y;
         this.camera.position.x = target.x;
         this.camera.position.y = target.y;
+        // Update planet position for paused seek
+        if (this.isPaused && seekTile?.position) {
+          this.currentTileIndex = seekIdx;
+          this.currentPivotPosition.x = seekTile.position[0];
+          this.currentPivotPosition.y = seekTile.position[1];
+          if (this.planetRed) {
+            this.planetRed.position.set(seekTile.position[0], seekTile.position[1], 1.0);
+          }
+          if (this.planetBlue) {
+            this.planetBlue.position.set(seekTile.position[0], seekTile.position[1], 1.0);
+          }
+        }
       }
     }
 
