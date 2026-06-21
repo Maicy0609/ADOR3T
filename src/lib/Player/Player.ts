@@ -1727,8 +1727,8 @@ export class Player implements IPlayer {
   }
 
   public renderPlayer(delta: number): void {
-    // Selection green flash animation
-    if (this.selectedTileIndex !== null) {
+    // Selection green flash animation (disabled during playback)
+    if (this.selectedTileIndex !== null && !this.isPlaying) {
       this.selectionTime += delta;
       const intensity = (Math.sin(this.selectionTime * Math.PI * 2) + 1) / 2;
       const idx = this.selectedTileIndex;
