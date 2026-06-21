@@ -1830,6 +1830,7 @@ export class Player implements IPlayer {
     this.startTime = performance.now(); // elapsedTime = 0 when startPlay is called
     this.elapsedTime = 0;
     this.currentTileIndex = 0;
+    this.deselectTile();
     this.useAudioContextTime = false;
     this.audioDriftSynced = false;
     
