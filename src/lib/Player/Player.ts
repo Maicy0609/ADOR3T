@@ -1815,7 +1815,7 @@ export class Player implements IPlayer {
   private audioContextStartOffset: number = 0;  // AudioContext.currentTime when game elapsedTime = 0
   private useAudioContextTime: boolean = false;
 
-  public startPlay(): void {
+  public startPlay(startAtMs: number = 0): void {
     if (this.isPlaying) return;
     
     this.isPlaying = true;
@@ -1844,7 +1844,25 @@ export class Player implements IPlayer {
     if (this.decorationManager) {
       this.decorationManager.reset();
     }
-    
+
+    // Seek to start time after all resets
+    if (startAtMs > 0) {
+      const s = this.levelData.settings;
+      const bpm0 = s.bpm || 100;
+      const spb0 = 60 / bpm0;
+      const ct0 = s.countdownTicks || 4;
+      const cd0 = ct0 * spb0;
+      const timeInLevel = startAtMs / 1000 - cd0;
+      this.elapsedTime = startAtMs;
+      this.startTime = performance.now() - startAtMs;
+      if (this.cameraController) {
+        this.cameraController.seek(timeInLevel, this.currentPivotPosition);
+      }
+      if (this.moveTrackManager) {
+        this.moveTrackManager.fastForwardTo(timeInLevel);
+      }
+    }
+
     // Calculate delay for countdown
     const settings = this.levelData.settings;
     const initialBPM = settings.bpm || 100;
@@ -2190,7 +2208,7 @@ export class Player implements IPlayer {
       if (ctx) this.audioContextStartOffset = ctx.currentTime - timeMs / 1000;
     }
 
-    if (!visualOnly) {
+    if (!visualOnly && this.isPlaying) {
       if (this.music && this.music.hasAudio) {
         const offset = (s.offset || 0) / 1000;
         this.music.seek(Math.max(0, timeMs / 1000 - this.musicStartDelay + offset));

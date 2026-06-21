@@ -124,13 +124,13 @@ export class CameraController {
             this.processCameraEvent(
                 entry.event,
                 entry.event.floor || 0,
-                time * 1000,
+                entry.time * 1000,
                 undefined,
                 pivot,
             );
         }
 
-        const interp = this.getInterpolatedValues(time);
+        const interp = this.getInterpolatedValues(time * 1000);
         this.cameraMode.position.x = interp.x;
         this.cameraMode.position.y = interp.y;
         this.cameraMode.rotation = interp.rotation;

@@ -122,9 +122,8 @@ export default function EditorPage() {
     const selectedIdx = p?.selectedTileIndex ?? null
     if (p) p.deselectTile()
     if (playMode === 'preview' && selectedIdx !== null && p) {
-      handlePlay()
       const t = p.getTileTimeMs(selectedIdx)
-      p.seekTo(t)
+      handlePlay(t)
       return
     }
     handlePlay()
@@ -439,9 +438,15 @@ export default function EditorPage() {
                     setSliderValue(v)
                     const p = previewerRef.current
                     if (p) {
-                      p.seekTo(v, !playModeActive)
+                      p.seekTo(v, true)
                       const idx = p.getTileIndexAtTime(v)
                       p.selectTile(idx)
+                    }
+                  }}
+                  onPointerUp={() => {
+                    const p = previewerRef.current
+                    if (p && playModeActive) {
+                      p.seekTo(sliderValue, false)
                     }
                   }}
                   className="w-48 h-1 cursor-pointer accent-blue-500"

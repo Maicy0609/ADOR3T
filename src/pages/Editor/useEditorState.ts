@@ -130,7 +130,7 @@ export function useEditorState() {
   }, [])
 
   // 播放功能
-  const handlePlay = useCallback((): void => {
+  const handlePlay = useCallback((startAtMs?: number): void => {
     if (!adofaiFile && !previewerRef.current) {
       window.showNotification?.("error", t("editor.notifications.noFileToPlay"))
       return
@@ -139,7 +139,7 @@ export function useEditorState() {
     if (playMode === "preview") {
       setPlayMode("play")
       setPlayModeActive(true)
-      previewerRef.current?.startPlay()
+      previewerRef.current?.startPlay(startAtMs ?? 0)
     } else if (playMode === "play") {
       setPlayMode("pause")
       previewerRef.current?.pausePlay()
