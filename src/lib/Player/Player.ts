@@ -1730,6 +1730,14 @@ export class Player implements IPlayer {
     // Sync camera zoom/rotation from CameraController (needed for non-play seek)
     if (!this.isPlaying && this.cameraController) {
       const interp = this.cameraController.getInterpolatedValues(this.elapsedTime);
+      // Calculate absolute position from relative cameraMode + pivot
+      const target = this.cameraController.calculateTargetPosition(
+        this.currentPivotPosition, interp
+      );
+      this.cameraPosition.x = target.x;
+      this.cameraPosition.y = target.y;
+      this.camera.position.x = target.x;
+      this.camera.position.y = target.y;
       this.adoZoom = interp.zoom;
       this.zoom = 100 / interp.zoom;
       this.camera.zoom = this.zoom * this.zoomMultiplier;
