@@ -2242,6 +2242,8 @@ export class Player implements IPlayer {
 
     this.elapsedTime = timeMs;
     this.startTime = performance.now() - timeMs;
+    // When paused, sync pauseTime so resumePlay doesn't double-add pause duration
+    if (this.isPaused) this.pauseTime = performance.now();
 
     const ctx = getSharedAudioContext();
     if (ctx) {
