@@ -325,6 +325,10 @@ export class Player implements IPlayer {
     );
     this.decorationManager.init();
 
+    // Build decoration keyframes into TimelineManager for unified seeking
+    this.decorationManager.buildTimelineKeyframes(this.timelineManager);
+    (this.decorationManager as any)._timelineManager = this.timelineManager;
+
     // Initialize MoveTrack Manager with TimelineManager
     this.moveTrackManager = new MoveTrackManager(this.timelineManager);
     this.moveTrackManager.setTilesReference(this.tiles);
@@ -2009,6 +2013,30 @@ export class Player implements IPlayer {
   public resetPlayer(): void {
     this.stopPlay();
     this.startPlay();
+  }
+
+  public seekTo(timeMs: number): void {
+    const s = this.levelData.settings;
+    const bpm0 = s.bpm || 100;
+    const spb0 = 60 / bpm0;
+    const ct0 = s.countdownTicks || 4;
+    const cd0 = ct0 * spb0;
+    const timeInLevel = timeMs / 1000 - cd0;
+
+    this.elapsedTime = timeMs;
+
+    if (this.music && this.music.hasAudio) {
+      const offset = (s.offset || 0) / 1000;
+      this.music.seek(Math.max(0, timeMs / 1000 - this.musicStartDelay + offset));
+    }
+
+    if (this.cameraController) {
+      this.cameraController.seek(timeInLevel, this.currentPivotPosition);
+    }
+
+    if (this.moveTrackManager) {
+      this.moveTrackManager.fastForwardTo(timeInLevel);
+    }
   }
 
   public setEditorMode(isEditorMode: boolean): void {

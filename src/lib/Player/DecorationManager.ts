@@ -330,7 +330,32 @@ class DecorationInstance {
         this.container.scale.set(this.currentScale.x * totalScaleMul, this.currentScale.y * totalScaleMul, 1);
     }
 
-    public updateAnimation(now: number): void {
+    public updateAnimation(now: number, tm?: TimelineManager): void {
+        if (tm && this.config.tag) {
+            const kv = `deco:${this.config.tag}`;
+            const px = tm.sample(kv, 'positionX', now);
+            if (px !== undefined) { this.currentPosition.x = px; this.pivotPos.x = px; }
+            const py = tm.sample(kv, 'positionY', now);
+            if (py !== undefined) { this.currentPosition.y = py; this.pivotPos.y = py; }
+            const rot = tm.sample(kv, 'rotation', now);
+            if (rot !== undefined) this.currentRotation = this.config.rotation + rot;
+            const sx = tm.sample(kv, 'scaleX', now);
+            if (sx !== undefined) this.currentScale.x = sx;
+            const sy = tm.sample(kv, 'scaleY', now);
+            if (sy !== undefined) this.currentScale.y = sy;
+            const op = tm.sample(kv, 'opacity', now);
+            if (op !== undefined) this.currentOpacity = op;
+            const parX = tm.sample(kv, 'parallaxX', now);
+            if (parX !== undefined) this.currentParallax.x = parX;
+            const parY = tm.sample(kv, 'parallaxY', now);
+            if (parY !== undefined) this.currentParallax.y = parY;
+            const pox = tm.sample(kv, 'parallaxOffsetX', now);
+            if (pox !== undefined) this.currentParallaxOffset.x = pox;
+            const poy = tm.sample(kv, 'parallaxOffsetY', now);
+            if (poy !== undefined) this.currentParallaxOffset.y = poy;
+            if (px !== undefined || py !== undefined) this.updateTransform();
+            return;
+        }
         if (!this.config.animating) return;
         const el = now - this.config.animationStart;
         const dur = this.config.animationDuration;
@@ -468,6 +493,7 @@ export class DecorationManager {
     private texturesLoaded: Set<string> = new Set();
     private placeholderTexture: Texture | null = null;
     private _lastCamX = 0; private _lastCamY = 0; private _lastCamZoom = 0;
+    private _timelineManager: TimelineManager | null = null;
 
     constructor(scene: Scene, levelData: any, tileStartTimes: number[], tileBPM: number[]) {
         this.scene = scene;
@@ -500,6 +526,165 @@ export class DecorationManager {
             }
         }
         this.buildDecorationEventsTimeline();
+    }
+
+    public buildTimelineKeyframes(tm: TimelineManager): void {
+        const initState = new Map<string, {
+            posX: number; posY: number;
+            rot: number;
+            scX: number; scY: number;
+            op: number;
+            parX: number; parY: number;
+            parOffX: number; parOffY: number;
+        }>();
+
+        for (const [tag, list] of this.taggedDecorations) {
+            if (list.length === 0) continue;
+            const d = list[0];
+
+            const startX = d.startPos.x;
+            const startY = d.startPos.y;
+            const baseRot = d.config.rotation;
+            const baseScX = d.config.scale[0];
+            const baseScY = d.config.scale[1];
+            const baseOp = d.config.opacity;
+            const baseParX = d.config.parallax[0];
+            const baseParY = d.config.parallax[1];
+            const baseParOffX = d.config.parallaxOffset[0];
+            const baseParOffY = d.config.parallaxOffset[1];
+
+            tm.addKeyframe(`deco:${tag}`, 'positionX', 0, startX, null);
+            tm.addKeyframe(`deco:${tag}`, 'positionY', 0, startY, null);
+            tm.addKeyframe(`deco:${tag}`, 'rotation', 0, d.currentRotation - baseRot, null);
+            tm.addKeyframe(`deco:${tag}`, 'scaleX', 0, baseScX / 100, null);
+            tm.addKeyframe(`deco:${tag}`, 'scaleY', 0, baseScY / 100, null);
+            tm.addKeyframe(`deco:${tag}`, 'opacity', 0, baseOp / 100, null);
+            tm.addKeyframe(`deco:${tag}`, 'parallaxX', 0, baseParX / 100, null);
+            tm.addKeyframe(`deco:${tag}`, 'parallaxY', 0, baseParY / 100, null);
+            tm.addKeyframe(`deco:${tag}`, 'parallaxOffsetX', 0, baseParOffX, null);
+            tm.addKeyframe(`deco:${tag}`, 'parallaxOffsetY', 0, baseParOffY, null);
+
+            initState.set(tag, {
+                posX: startX, posY: startY,
+                rot: 0,
+                scX: baseScX / 100, scY: baseScY / 100,
+                op: baseOp / 100,
+                parX: baseParX / 100, parY: baseParY / 100,
+                parOffX: baseParOffX, parOffY: baseParOffY,
+            });
+        }
+
+        const ts = this.tileSize;
+        for (const entry of this.decorationEventsTimeline) {
+            const { time: eventTime, event } = entry;
+            if (event.eventType !== 'MoveDecorations') continue;
+            if (!isEventActive(event)) continue;
+
+            const tagStr = event.tag || '';
+            if (!tagStr) continue;
+            const tags = tagStr.split(/\s+/).filter(Boolean);
+            const floor = event.floor ?? 0;
+            const bpm = this.tileBPM[floor] || 100;
+            const duration = (event.duration || 0) * 60 / bpm;
+            const ease = event.ease || 'Linear';
+            const movementType = this.parsePlacement(event.relativeTo);
+            const isLastPos = movementType === DecPlacementType.LastPosition;
+
+            for (const tag of tags) {
+                const kv = `deco:${tag}`;
+                const state = initState.get(tag);
+                if (!state) continue;
+
+                const endTime = eventTime + duration;
+                const hasDur = duration > 0;
+
+                if (event.positionOffset !== undefined && !event.disabled?.positionOffset) {
+                    const pos = this.parseVec2(event.positionOffset, [0, 0]);
+                    const offX = pos[0] * ts;
+                    const offY = pos[1] * ts;
+                    const startX = tm.sample(kv, 'positionX', eventTime) ?? state.posX;
+                    const startY = tm.sample(kv, 'positionY', eventTime) ?? state.posY;
+                    const endX = isLastPos ? startX + offX : (state.posX - 0) + offX;
+                    const endY = isLastPos ? startY + offY : (state.posY - 0) + offY;
+                    // Actually for non-LastPosition, the target is startPos (from AddObject) + offset.
+                    // state stores the initial position. But after events, posX/posY are stale.
+                    // For keyframes, we let addTween handle the interpolation.
+                    if (hasDur) {
+                        tm.addTween(kv, 'positionX', eventTime, endTime, startX, endX, ease);
+                        tm.addTween(kv, 'positionY', eventTime, endTime, startY, endY, ease);
+                    } else {
+                        tm.addKeyframe(kv, 'positionX', eventTime, endX, null);
+                        tm.addKeyframe(kv, 'positionY', eventTime, endY, null);
+                    }
+                }
+
+                if (event.rotationOffset !== undefined && !event.disabled?.rotationOffset) {
+                    const rotOff = event.rotationOffset * Math.PI / 180;
+                    const startRot = tm.sample(kv, 'rotation', eventTime) ?? state.rot;
+                    const endRot = isLastPos ? startRot + rotOff : rotOff;
+                    if (hasDur) {
+                        tm.addTween(kv, 'rotation', eventTime, endTime, startRot, endRot, ease);
+                    } else {
+                        tm.addKeyframe(kv, 'rotation', eventTime, endRot, null);
+                    }
+                }
+
+                if (event.scale !== undefined && !event.disabled?.scale) {
+                    const s = this.parseVec2(event.scale, [100, 100]);
+                    const endSX = s[0] / 100;
+                    const endSY = s[1] / 100;
+                    const startSX = tm.sample(kv, 'scaleX', eventTime) ?? state.scX;
+                    const startSY = tm.sample(kv, 'scaleY', eventTime) ?? state.scY;
+                    if (hasDur) {
+                        tm.addTween(kv, 'scaleX', eventTime, endTime, startSX, endSX, ease);
+                        tm.addTween(kv, 'scaleY', eventTime, endTime, startSY, endSY, ease);
+                    } else {
+                        tm.addKeyframe(kv, 'scaleX', eventTime, endSX, null);
+                        tm.addKeyframe(kv, 'scaleY', eventTime, endSY, null);
+                    }
+                }
+
+                if (event.opacity !== undefined && !event.disabled?.opacity) {
+                    const endOp = event.opacity / 100;
+                    const startOp = tm.sample(kv, 'opacity', eventTime) ?? state.op;
+                    if (hasDur) {
+                        tm.addTween(kv, 'opacity', eventTime, endTime, startOp, endOp, ease);
+                    } else {
+                        tm.addKeyframe(kv, 'opacity', eventTime, endOp, null);
+                    }
+                }
+
+                if (event.parallax !== undefined && !event.disabled?.parallax) {
+                    const p = this.parseVec2(event.parallax, [100, 100]);
+                    const endParX = p[0] / 100;
+                    const endParY = p[1] / 100;
+                    const startParX = tm.sample(kv, 'parallaxX', eventTime) ?? state.parX;
+                    const startParY = tm.sample(kv, 'parallaxY', eventTime) ?? state.parY;
+                    if (hasDur) {
+                        tm.addTween(kv, 'parallaxX', eventTime, endTime, startParX, endParX, ease);
+                        tm.addTween(kv, 'parallaxY', eventTime, endTime, startParY, endParY, ease);
+                    } else {
+                        tm.addKeyframe(kv, 'parallaxX', eventTime, endParX, null);
+                        tm.addKeyframe(kv, 'parallaxY', eventTime, endParY, null);
+                    }
+                }
+
+                if (event.parallaxOffset !== undefined && !event.disabled?.parallaxOffset) {
+                    const po = this.parseVec2(event.parallaxOffset, [0, 0]);
+                    const endPOX = po[0] * ts;
+                    const endPOY = po[1] * ts;
+                    const startPOX = tm.sample(kv, 'parallaxOffsetX', eventTime) ?? state.parOffX;
+                    const startPOY = tm.sample(kv, 'parallaxOffsetY', eventTime) ?? state.parOffY;
+                    if (hasDur) {
+                        tm.addTween(kv, 'parallaxOffsetX', eventTime, endTime, startPOX, endPOX, ease);
+                        tm.addTween(kv, 'parallaxOffsetY', eventTime, endTime, startPOY, endPOY, ease);
+                    } else {
+                        tm.addKeyframe(kv, 'parallaxOffsetX', eventTime, endPOX, null);
+                        tm.addKeyframe(kv, 'parallaxOffsetY', eventTime, endPOY, null);
+                    }
+                }
+            }
+        }
     }
 
     private tryCreateDecoration(event: any): DecorationInstance | null {
@@ -888,7 +1073,7 @@ export class DecorationManager {
         let needsTilePositions = false;
         for (let i = 0; i < len; i++) {
             const d = list[i];
-            if (d.config.animating) { d.updateAnimation(now); animCount++; }
+            if (d.config.animating || (this._timelineManager && d.config.tag)) { d.updateAnimation(now, this._timelineManager!); animCount++; }
             if (d.config.stickToFloor || d.config.relativeTo === DecPlacementType.RedPlanet
                 || d.config.relativeTo === DecPlacementType.BluePlanet
                 || d.config.relativeTo === DecPlacementType.GreenPlanet) {
@@ -979,6 +1164,35 @@ export class DecorationManager {
         for (const tag of tags) {
             const list = this.taggedDecorations.get(tag);
             if (!list) continue;
+
+            if (this._timelineManager && duration > 0) {
+                // Timeline mode: only apply instant (non-keyframed) properties
+                for (const deco of list) {
+                    if (event.decorationImage !== undefined && !event.disabled?.decorationImage) {
+                        deco.config.decorationImage = event.decorationImage;
+                    }
+                    if (event.depth !== undefined && !event.disabled?.depth) {
+                        deco.config.depth = event.depth;
+                    }
+                    if (event.visible !== undefined && !event.disabled?.visible) {
+                        deco.config.visible = event.visible;
+                        deco.container.visible = event.visible;
+                    }
+                    if (event.pivotOffset !== undefined && !event.disabled?.pivotOffset) {
+                        const piv = this.parseVec2(event.pivotOffset, [0, 0]);
+                        deco.config.pivotOffset = [piv[0] * ts, piv[1] * ts];
+                    }
+                    // Color: only apply if no keyframe (color not yet in keyframe system)
+                    if (event.color !== undefined && !event.disabled?.color) {
+                        deco.config.color = event.color;
+                        const [hex, alpha] = parseDecoColor(event.color);
+                        deco.currentColor.set(hex);
+                        deco.currentOpacity = (deco.config.opacity / 100) * alpha;
+                    }
+                }
+                continue;
+            }
+
             for (const deco of list) {
                 const target: Partial<DecorationConfig> = {};
 

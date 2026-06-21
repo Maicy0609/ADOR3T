@@ -293,6 +293,14 @@ export class TimelineManager {
         return this.interpolateTimelinePair(left, right, time);
     }
 
+    public sampleStep(entity: string, property: string, time: number): number | undefined {
+        const kfs = this.timelines.get(entity)?.get(property);
+        if (!kfs || kfs.length === 0) return undefined;
+        const idx = this.findKeyframeIndex(kfs, time);
+        if (idx < 0) return kfs[0].value;
+        return kfs[idx].value;
+    }
+
     public samplePosition(entity: string, time: number): { x: number; y: number } | null {
         const x = this.sample(entity, 'positionX', time);
         const y = this.sample(entity, 'positionY', time);
@@ -384,6 +392,42 @@ export class TimelineManager {
             if (time < kfs[kfs.length - 1].time) return true;
         }
         return false;
+    }
+
+    /* ── 通用 keyframe 添加（给 Camera/Decoration 用） ────────────── */
+
+    public addKeyframe(entity: string, property: string, time: number, value: number, ease: string | null): void {
+        const kfs = this.ensureTimeline(entity, property);
+        const prevIdx = this.findKeyframeIndex(kfs, time);
+        if (prevIdx >= 0 && Math.abs(kfs[prevIdx].time - time) < 1e-9) {
+            kfs[prevIdx].value = value;
+            kfs[prevIdx].ease = ease;
+            return;
+        }
+        kfs.push({ time, value, ease });
+        if (kfs.length > 1) kfs.sort((a, b) => a.time - b.time);
+    }
+
+    public addTween(entity: string, property: string, startTime: number, endTime: number, startValue: number, endValue: number, ease: string): void {
+        const kfs = this.ensureTimeline(entity, property);
+        const prevIdx = this.findKeyframeIndex(kfs, startTime);
+        const actualStart = prevIdx >= 0
+            ? this.interpolateTimeline(kfs, prevIdx, startTime)
+            : (kfs[0]?.value ?? startValue);
+        this.removeAfter(kfs, startTime + 1e-9);
+        kfs.push({ time: startTime, value: actualStart, ease });
+        kfs.push({ time: endTime, value: endValue, ease: null });
+        if (kfs.length > 1) kfs.sort((a, b) => a.time - b.time);
+    }
+
+    /* ── 查询所有 entity 类型 ─────────────────────────────────────── */
+
+    public getAllEntitiesByPrefix(prefix: string): string[] {
+        const result: string[] = [];
+        for (const entity of this.timelines.keys()) {
+            if (entity.startsWith(prefix)) result.push(entity);
+        }
+        return result;
     }
 
     /* ── 工具 ────────────────────────────────────────────────────── */
