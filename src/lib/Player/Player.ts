@@ -1126,7 +1126,7 @@ export class Player implements IPlayer {
     }
     this.selectedTileIndex = index;
     this.selectionTime = 0;
-    this.moveCameraToTile(index);
+    if (!this.isPlaying) this.moveCameraToTile(index);
   }
 
   public deselectTile(): void {
@@ -1747,6 +1747,7 @@ export class Player implements IPlayer {
       this.cameraPosition.lerp(this._targetCamPos, Math.min(1, delta * 8));
       this.camera.position.x = this.cameraPosition.x;
       this.camera.position.y = this.cameraPosition.y;
+      this.updateVisibleTiles();
       if (this.cameraPosition.distanceTo(this._targetCamPos) < 0.001) {
         this.cameraPosition.copy(this._targetCamPos);
         this._targetCamPos = null;
