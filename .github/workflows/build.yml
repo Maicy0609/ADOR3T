@@ -1,4 +1,4 @@
-name: Build and Release APK
+name: Build and Release APK + Web
 
 on:
   push:
@@ -22,17 +22,35 @@ jobs:
         with:
           node-version: 24
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
       - name: Install dependencies
-        run: yarn install
+        run: pnpm install --frozen-lockfile
 
       # ========== Web build ==========
-      - name: Build web + push to Android assets
-        run: yarn build:android
+      - name: Build web dist
+        run: pnpm build
 
-      - name: Upload web dist
+      - name: Package dist.zip
+        run: cd dist && zip -r ../dist.zip . && cd ..
+
+      - name: Upload web dist (artifact)
         uses: actions/upload-artifact@v4
         with:
           name: web-dist
+          path: dist/
+          if-no-files-found: error
+
+      - name: Build web + push to Android assets
+        run: pnpm build:android
+
+      - name: Upload web dist (android)
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-dist-android
           path: dist/
           if-no-files-found: error
 
@@ -66,9 +84,12 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: ADOJAS ${{ github.ref_name }}
           body: |
-            ADOJAS Android APK ${{ github.ref_name }} 自动构建
+            ADOJAS ${{ github.ref_name }} 自动构建
 
-            从 Releases 页面下载 `app-debug.apk` 安装包。
-          files: platform/android/app/build/outputs/apk/debug/*.apk
+            下载 `dist.zip` 为 Web 版本。
+            下载 `app-debug.apk` 为 Android APK。
+          files: |
+            dist.zip
+            platform/android/app/build/outputs/apk/debug/*.apk
           draft: false
           prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
