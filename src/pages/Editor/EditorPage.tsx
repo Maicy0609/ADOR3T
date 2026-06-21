@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { ArrowLeft, Settings, Save, Upload, Download, Music, Video, Image, Maximize, Minimize } from "lucide-react"
 import { SettingsModal } from "@/components/SettingsModal"
@@ -67,6 +67,7 @@ export default function EditorPage() {
   const player = previewerRef.current
   const totalMs = player?.totalDurationMs ?? 600000
 
+  // Poll slider position during playback
   useEffect(() => {
     if (!playModeActive) return
     const id = setInterval(() => {
@@ -76,6 +77,53 @@ export default function EditorPage() {
     }, 100)
     return () => clearInterval(id)
   }, [playModeActive])
+
+  // Sync slider when tile is selected via click/keyboard
+  useEffect(() => {
+    if (!timelineOpen || !previewerRef.current) return
+    const idx = previewerRef.current.selectedTileIndex
+    if (idx !== null) {
+      const t = previewerRef.current.getTileTimeMs(idx)
+      setSliderValue(t)
+    }
+  }, [timelineOpen, previewerRef.current?.selectedTileIndex])
+
+  // Keyboard nav for tile selection
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!previewerRef.current) return
+      const cur = previewerRef.current.selectedTileIndex
+      const len = previewerRef.current.tileCount
+      if (len === 0) return
+
+      if (e.code === 'Home') {
+        e.preventDefault()
+        previewerRef.current.selectTile(0)
+      } else if (e.code === 'End') {
+        e.preventDefault()
+        previewerRef.current.selectTile(len - 1)
+      } else if (e.code === 'ArrowRight') {
+        e.preventDefault()
+        const next = cur !== null ? Math.min(cur + 1, len - 1) : 0
+        previewerRef.current.selectTile(next)
+      } else if (e.code === 'ArrowLeft') {
+        e.preventDefault()
+        const prev = cur !== null ? Math.max(cur - 1, 0) : 0
+        previewerRef.current.selectTile(prev)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
+
+  const handlePlayWithSeek = useCallback(() => {
+    const p = previewerRef.current
+    if (playMode === 'preview' && p?.selectedTileIndex !== null && p) {
+      const t = p.getTileTimeMs(p.selectedTileIndex)
+      p.seekTo(t)
+    }
+    handlePlay()
+  }, [playMode, handlePlay])
 
   const { isFullscreen, toggleFullscreen } = useFullscreen()
 
@@ -323,7 +371,7 @@ export default function EditorPage() {
 
       {/* Full-screen Canvas Area */}
       <div ref={containerRef} className="absolute inset-0">
-        <div className="absolute bottom-4 left-4 flex items-end gap-2">
+        <div className="absolute bottom-4 left-4 flex items-end gap-4">
           <div className="relative inline-block">
             <button
               className={`z-10 w-14 h-14 rounded-full flex items-center justify-center transition-colors ${isDark
@@ -332,7 +380,7 @@ export default function EditorPage() {
                 } shadow-lg backdrop-blur-sm`}
               title={playMode === "play" ? t("editor.pause") : t("editor.play")}
               id="play-button"
-              onClick={handlePlay}
+              onClick={handlePlayWithSeek}
             >
               {playMode === "play" ? (
                 <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></svg>
@@ -375,7 +423,12 @@ export default function EditorPage() {
                   onChange={e => {
                     const v = Number(e.target.value)
                     setSliderValue(v)
-                    previewerRef.current?.seekTo(v)
+                    const p = previewerRef.current
+                    if (p) {
+                      p.seekTo(v, !playModeActive)
+                      const idx = p.getTileIndexAtTime(v)
+                      p.selectTile(idx)
+                    }
                   }}
                   className="w-48 h-1 cursor-pointer accent-blue-500"
                 />

@@ -1,4 +1,4 @@
-import { Scene, OrthographicCamera, WebGLRenderer, Mesh, Vector3, Texture, BufferGeometry, WebGLRenderTarget, Color, Vector2, DirectionalLight, Float32BufferAttribute, Euler, Material, MeshBasicMaterial, TextureLoader, SRGBColorSpace, NearestFilter, LinearFilter, PlaneGeometry, BufferAttribute, Sprite, SpriteMaterial, RepeatWrapping, LinearMipmapLinearFilter, VideoTexture, DoubleSide } from 'three';
+import { Scene, OrthographicCamera, WebGLRenderer, Mesh, Vector3, Texture, BufferGeometry, WebGLRenderTarget, Color, Vector2, DirectionalLight, Float32BufferAttribute, Euler, Material, MeshBasicMaterial, TextureLoader, SRGBColorSpace, NearestFilter, LinearFilter, PlaneGeometry, BufferAttribute, Sprite, SpriteMaterial, RepeatWrapping, LinearMipmapLinearFilter, VideoTexture, DoubleSide, Raycaster, Intersection } from 'three';
 import {WebGPURenderer} from 'three/webgpu';
 import { IPlayer, ILevelData, IMusic, TargetFramerateType } from './types';
 import { Planet } from './Planet';
@@ -79,6 +79,10 @@ export class Player implements IPlayer {
   // Interaction state
   private isDragging: boolean = false;
   private previousMousePosition: { x: number; y: number } = { x: 0, y: 0 };
+  private mouseDownPos: { x: number; y: number } = { x: 0, y: 0 };
+  private raycaster: Raycaster = new Raycaster();
+  public selectedTileIndex: number | null = null;
+  private selectionTime: number = 0;
   private initialPinchDistance: number = 0;
   private initialZoom: number = 0;
   
@@ -1049,6 +1053,7 @@ export class Player implements IPlayer {
     if (event.button === 0) { // Left click
       this.isDragging = true;
       this.previousMousePosition = { x: event.clientX, y: event.clientY };
+      this.mouseDownPos = { x: event.clientX, y: event.clientY };
     }
   }
 
@@ -1074,8 +1079,87 @@ export class Player implements IPlayer {
     this.previousMousePosition = { x: event.clientX, y: event.clientY };
   }
 
-  private onMouseUp(): void {
+  private onMouseUp(event: MouseEvent): void {
+    const dx = event.clientX - this.mouseDownPos.x;
+    const dy = event.clientY - this.mouseDownPos.y;
+    const wasClick = Math.sqrt(dx * dx + dy * dy) < 5;
     this.isDragging = false;
+
+    if (wasClick && event.button === 0) {
+      this.handleTileClick(event);
+    }
+  }
+
+  private handleTileClick(event: MouseEvent): void {
+    if (!this.container) return;
+    const rect = this.container.getBoundingClientRect();
+    const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    const y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    this.raycaster.setFromCamera(new Vector2(x, y), this.camera);
+
+    const meshes: Mesh[] = [];
+    for (const [, mesh] of this.tiles) {
+      if (mesh.geometry) meshes.push(mesh);
+    }
+    const hits = this.raycaster.intersectObjects(meshes, false);
+    if (hits.length > 0) {
+      const hitMesh = hits[0].object as Mesh;
+      let tileIdx: number | null = null;
+      for (const [id, mesh] of this.tiles) {
+        if (mesh === hitMesh) { tileIdx = parseInt(id, 10); break; }
+      }
+      if (tileIdx !== null && !isNaN(tileIdx)) {
+        this.selectTile(tileIdx);
+        return;
+      }
+    }
+    this.deselectTile();
+  }
+
+  public selectTile(index: number): void {
+    if (index < 0 || index >= this.levelData.tiles.length) return;
+    this.selectedTileIndex = index;
+    this.moveCameraToTile(index);
+  }
+
+  public deselectTile(): void {
+    this.selectedTileIndex = null;
+  }
+
+  public getTileTimeMs(index: number): number {
+    if (index < 0 || index >= this.tileStartTimes.length) return 0;
+    const s = this.levelData.settings;
+    const bpm0 = s.bpm || 100;
+    const spb0 = 60 / bpm0;
+    const ct0 = s.countdownTicks || 4;
+    const cd0 = ct0 * spb0;
+    return (this.tileStartTimes[index] + cd0) * 1000;
+  }
+
+  public getTileIndexAtTime(timeMs: number): number {
+    const s = this.levelData.settings;
+    const bpm0 = s.bpm || 100;
+    const spb0 = 60 / bpm0;
+    const ct0 = s.countdownTicks || 4;
+    const cd0 = ct0 * spb0;
+    const timeInLevel = timeMs / 1000 - cd0;
+    let idx = 0;
+    for (let i = 0; i < this.tileStartTimes.length; i++) {
+      if (this.tileStartTimes[i] <= timeInLevel) idx = i;
+      else break;
+    }
+    return idx;
+  }
+
+  private moveCameraToTile(index: number): void {
+    const tile = this.levelData.tiles?.[index];
+    if (!tile?.position) return;
+    const tpos = tile.position;
+    const x = tpos[0];
+    const y = tpos[1];
+    this.cameraPosition.set(x, y, 0);
+    this.camera.position.x = x;
+    this.camera.position.y = y;
   }
 
   private onWheel(event: WheelEvent): void {
@@ -1607,6 +1691,22 @@ export class Player implements IPlayer {
   }
 
   public renderPlayer(delta: number): void {
+    // Selection green flash animation
+    if (this.selectedTileIndex !== null) {
+      this.selectionTime += delta;
+      const intensity = (Math.sin(this.selectionTime * Math.PI * 2) + 1) / 2;
+      const idx = this.selectedTileIndex;
+      if (this.instancedMeshManager && this.tileColorManager) {
+        const base = this.tileColorManager.getTileColor(idx);
+        if (base) {
+          const c = new Color(base.color);
+          c.r += (0 - c.r) * intensity * 0.4;
+          c.g += (1 - c.g) * intensity * 0.4;
+          c.b += (0 - c.b) * intensity * 0.4;
+          this.instancedMeshManager.updateTileColor(idx, c.getHexString(), base.secondaryColor);
+        }
+      }
+    }
     // If renderer not initialized, try to initialize it
     if (!this.rendererInitialized && !this.isRestoringContext) {
       this.initRenderer();
@@ -2022,7 +2122,9 @@ export class Player implements IPlayer {
     return (lastTileTime + 10) * 1000;
   }
 
-  public seekTo(timeMs: number): void {
+  get tileCount(): number { return this.levelData.tiles.length; }
+
+  public seekTo(timeMs: number, visualOnly?: boolean): void {
     const s = this.levelData.settings;
     const bpm0 = s.bpm || 100;
     const spb0 = 60 / bpm0;
@@ -2032,17 +2134,28 @@ export class Player implements IPlayer {
 
     this.elapsedTime = timeMs;
 
-    if (this.music && this.music.hasAudio) {
-      const offset = (s.offset || 0) / 1000;
-      this.music.seek(Math.max(0, timeMs / 1000 - this.musicStartDelay + offset));
+    // Sync wall-clock base so updatePlayer doesn't overwrite the seek
+    if (!this.music?.hasAudio || !this.music?.isPlaying) {
+      this.startTime = performance.now() - timeMs;
+    }
+    if (this.useAudioContextTime) {
+      const ctx = getSharedAudioContext();
+      if (ctx) this.audioContextStartOffset = ctx.currentTime - timeMs / 1000;
     }
 
-    if (this.hitsoundManager && this.hitsoundManager.isSynthesized() && timeInLevel > 0) {
-      this.hitsoundManager.startAtOffset(timeInLevel);
-    }
+    if (!visualOnly) {
+      if (this.music && this.music.hasAudio) {
+        const offset = (s.offset || 0) / 1000;
+        this.music.seek(Math.max(0, timeMs / 1000 - this.musicStartDelay + offset));
+      }
 
-    if (this.videoElement) {
-      this.videoElement.currentTime = Math.max(0, timeMs / 1000 - this.musicStartDelay);
+      if (this.hitsoundManager && this.hitsoundManager.isSynthesized() && timeInLevel > 0) {
+        this.hitsoundManager.startAtOffset(timeInLevel);
+      }
+
+      if (this.videoElement) {
+        this.videoElement.currentTime = Math.max(0, timeMs / 1000 - this.musicStartDelay);
+      }
     }
 
     if (this.cameraController) {
