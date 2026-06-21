@@ -136,6 +136,14 @@ export class CameraController {
         this.cameraMode.rotation = interp.rotation;
         this.cameraMode.zoom = interp.zoom;
         this.resetTransitions();
+
+        // Sync lastCameraTimelineIndex so updateCameraFollow doesn't reprocess
+        let lastIdx = -1;
+        for (let i = 0; i < timeline.length; i++) {
+            if (timeline[i].time <= time) lastIdx = i;
+            else break;
+        }
+        this.lastCameraTimelineIndex = lastIdx;
     }
 
     // ── 跟随平滑（匹配 C# scrCamera.UpdateFollowCam） ─────────────────
