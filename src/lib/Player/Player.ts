@@ -1118,12 +1118,29 @@ export class Player implements IPlayer {
 
   public selectTile(index: number): void {
     if (index < 0 || index >= this.levelData.tiles.length) return;
+    // Restore old selection color before switching
+    if (this.selectedTileIndex !== null && this.selectedTileIndex !== index) {
+      this.restoreTileColor(this.selectedTileIndex);
+    }
     this.selectedTileIndex = index;
+    this.selectionTime = 0;
     this.moveCameraToTile(index);
   }
 
   public deselectTile(): void {
+    if (this.selectedTileIndex !== null) {
+      this.restoreTileColor(this.selectedTileIndex);
+    }
     this.selectedTileIndex = null;
+  }
+
+  private restoreTileColor(index: number): void {
+    if (this.instancedMeshManager && this.tileColorManager) {
+      const base = this.tileColorManager.getTileColor(index);
+      if (base) {
+        this.instancedMeshManager.updateTileColor(index, base.color, base.secondaryColor);
+      }
+    }
   }
 
   public getTileTimeMs(index: number): number {
