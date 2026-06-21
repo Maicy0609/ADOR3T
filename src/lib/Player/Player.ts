@@ -83,6 +83,7 @@ export class Player implements IPlayer {
   private raycaster: Raycaster = new Raycaster();
   public selectedTileIndex: number | null = null;
   private selectionTime: number = 0;
+  private _targetCamPos: Vector3 | null = null;
   private initialPinchDistance: number = 0;
   private initialZoom: number = 0;
   
@@ -1135,10 +1136,16 @@ export class Player implements IPlayer {
   }
 
   private restoreTileColor(index: number): void {
-    if (this.instancedMeshManager && this.tileColorManager) {
+    if (this.tileColorManager) {
       const base = this.tileColorManager.getTileColor(index);
       if (base) {
-        this.instancedMeshManager.updateTileColor(index, base.color, base.secondaryColor);
+        if (this.instancedMeshManager) {
+          this.instancedMeshManager.updateTileColor(index, base.color, base.secondaryColor);
+        }
+        const mesh = this.tiles.get(index.toString());
+        if (mesh && mesh.material) {
+          (mesh.material as MeshBasicMaterial).color.setHex(parseInt(base.color, 16));
+        }
       }
     }
   }
@@ -1171,12 +1178,7 @@ export class Player implements IPlayer {
   private moveCameraToTile(index: number): void {
     const tile = this.levelData.tiles?.[index];
     if (!tile?.position) return;
-    const tpos = tile.position;
-    const x = tpos[0];
-    const y = tpos[1];
-    this.cameraPosition.set(x, y, 0);
-    this.camera.position.x = x;
-    this.camera.position.y = y;
+    this._targetCamPos = new Vector3(tile.position[0], tile.position[1], 0);
   }
 
   private onWheel(event: WheelEvent): void {
@@ -1713,15 +1715,30 @@ export class Player implements IPlayer {
       this.selectionTime += delta;
       const intensity = (Math.sin(this.selectionTime * Math.PI * 2) + 1) / 2;
       const idx = this.selectedTileIndex;
-      if (this.instancedMeshManager && this.tileColorManager) {
+      if (this.tileColorManager) {
         const base = this.tileColorManager.getTileColor(idx);
         if (base) {
           const c = new Color(base.color);
-          c.r += (0 - c.r) * intensity * 0.4;
-          c.g += (1 - c.g) * intensity * 0.4;
-          c.b += (0 - c.b) * intensity * 0.4;
-          this.instancedMeshManager.updateTileColor(idx, c.getHexString(), base.secondaryColor);
+          c.lerp(new Color(0, 1, 0), intensity * 0.5);
+          const hex = c.getHexString();
+          if (this.instancedMeshManager) {
+            this.instancedMeshManager.updateTileColor(idx, hex, base.secondaryColor);
+          }
+          const mesh = this.tiles.get(idx.toString());
+          if (mesh && mesh.material) {
+            (mesh.material as MeshBasicMaterial).color.setHex(parseInt(hex, 16));
+          }
         }
+      }
+    }
+    // Smooth camera follow for selected tile
+    if (this._targetCamPos) {
+      this.cameraPosition.lerp(this._targetCamPos, Math.min(1, delta * 8));
+      this.camera.position.x = this.cameraPosition.x;
+      this.camera.position.y = this.cameraPosition.y;
+      if (this.cameraPosition.distanceTo(this._targetCamPos) < 0.001) {
+        this.cameraPosition.copy(this._targetCamPos);
+        this._targetCamPos = null;
       }
     }
     // If renderer not initialized, try to initialize it
