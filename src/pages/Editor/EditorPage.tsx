@@ -63,6 +63,8 @@ export default function EditorPage() {
 
   const [timelineOpen, setTimelineOpen] = useState(false)
   const [sliderValue, setSliderValue] = useState(0)
+  const [windowStart, setWindowStart] = useState(0)
+  const WINDOW_MS = 5000
 
   const player = previewerRef.current
   const totalMs = player?.totalDurationMs ?? 600000
@@ -77,6 +79,15 @@ export default function EditorPage() {
     }, 100)
     return () => clearInterval(id)
   }, [playModeActive])
+
+  // Auto-follow window when slider goes outside the visible range
+  useEffect(() => {
+    if (sliderValue < windowStart) {
+      setWindowStart(Math.max(0, sliderValue - WINDOW_MS * 0.1))
+    } else if (sliderValue > windowStart + WINDOW_MS) {
+      setWindowStart(Math.min(totalMs - WINDOW_MS, sliderValue - WINDOW_MS * 0.9))
+    }
+  }, [sliderValue])
 
   // Sync slider when tile is selected via click/keyboard
   useEffect(() => {
@@ -430,33 +441,52 @@ export default function EditorPage() {
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="10" width="18" height="4" rx="1" /><circle cx="7" cy="12" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="17" cy="12" r="2" /></svg>
             </button>
             {timelineOpen && (
-              <div className={`flex items-center gap-2 h-8 px-3 rounded-full ${isDark ? "bg-slate-700/80" : "bg-white/80"} shadow-lg backdrop-blur-sm`}>
-                <input
-                  type="range"
-                  min={0}
-                  max={totalMs}
-                  value={sliderValue}
-                  onChange={e => {
-                    const v = Number(e.target.value)
-                    setSliderValue(v)
-                    const p = previewerRef.current
-                    if (p) {
-                      p.seekTo(v, true)
-                      const idx = p.getTileIndexAtTime(v)
-                      p.selectTile(idx)
-                    }
-                  }}
-                  onPointerUp={() => {
-                    const p = previewerRef.current
-                    if (p && playModeActive) {
-                      p.seekTo(sliderValue, false)
-                    }
-                  }}
-                  className="w-48 h-1 cursor-pointer accent-blue-500"
-                />
-                <span className={`text-xs tabular-nums min-w-[5rem] text-right ${isDark ? "text-slate-300" : "text-slate-600"}`}>
-                  {formatTime(sliderValue)} / {formatTime(totalMs)}
-                </span>
+              <div className={`flex flex-col gap-0.5 p-2 rounded-lg ${isDark ? "bg-slate-800/80" : "bg-white/80"} shadow-lg backdrop-blur-sm min-w-[20rem]`}>
+                {/* Overview — full range, draggable window indicator */}
+                <div className="flex items-center gap-2">
+                  <input
+                    type="range"
+                    min={0}
+                    max={Math.max(0, totalMs - WINDOW_MS)}
+                    value={Math.min(windowStart, Math.max(0, totalMs - WINDOW_MS))}
+                    onChange={e => setWindowStart(Number(e.target.value))}
+                    className="w-full h-1 cursor-pointer accent-blue-500"
+                    title="Overview — adjust 5s window position"
+                  />
+                  <span className={`text-xs tabular-nums min-w-[6.5rem] text-right shrink-0 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                    {formatTime(windowStart)} – {formatTime(windowStart + WINDOW_MS)}
+                  </span>
+                </div>
+                {/* Detail — 5s window for precise scrubbing */}
+                <div className="flex items-center gap-2">
+                  <input
+                    type="range"
+                    min={0}
+                    max={WINDOW_MS}
+                    value={Math.max(0, Math.min(WINDOW_MS, sliderValue - windowStart))}
+                    onChange={e => {
+                      const v = windowStart + Number(e.target.value)
+                      setSliderValue(v)
+                      const p = previewerRef.current
+                      if (p) {
+                        p.seekTo(v, true)
+                        const idx = p.getTileIndexAtTime(v)
+                        p.selectTile(idx)
+                      }
+                    }}
+                    onPointerUp={() => {
+                      const p = previewerRef.current
+                      if (p && playModeActive) {
+                        p.seekTo(sliderValue, false)
+                      }
+                    }}
+                    className="w-full h-1.5 cursor-pointer accent-green-500"
+                    title="Precise scrub within 5s window"
+                  />
+                  <span className={`text-xs tabular-nums min-w-[5rem] text-right shrink-0 ${isDark ? "text-slate-300" : "text-slate-600"}`}>
+                    {formatTime(sliderValue)} / {formatTime(totalMs)}
+                  </span>
+                </div>
               </div>
             )}
           </div>
