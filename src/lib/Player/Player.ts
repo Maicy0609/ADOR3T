@@ -2232,6 +2232,7 @@ export class Player implements IPlayer {
   get isPlayerPlaying(): boolean { return this.isPlaying; }
 
   public seekTo(timeMs: number, visualOnly?: boolean): void {
+    console.log('[seekTo]', { timeMs, visualOnly, isPlaying: this.isPlaying, isPaused: this.isPaused });
     const s = this.levelData.settings;
     const bpm0 = s.bpm || 100;
     const spb0 = 60 / bpm0;
@@ -2271,12 +2272,14 @@ export class Player implements IPlayer {
       if (this.isPaused) {
         const seekIdx = this.getTileIndexAtTime(this.elapsedTime);
         const seekTile = this.levelData.tiles?.[seekIdx];
+        console.log('[seekTo] pause planet', { seekIdx, pos: seekTile?.position, elapsed: this.elapsedTime });
         if (seekTile?.position) {
           this.currentTileIndex = seekIdx;
           this.currentPivotPosition.x = seekTile.position[0];
           this.currentPivotPosition.y = seekTile.position[1];
           if (this.planetRed) {
             this.planetRed.position.set(seekTile.position[0], seekTile.position[1], 1.0);
+            console.log('[seekTo] planetRed moved to', seekTile.position);
           }
           if (this.planetBlue) {
             this.planetBlue.position.set(seekTile.position[0], seekTile.position[1], 1.0);
