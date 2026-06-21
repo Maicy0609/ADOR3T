@@ -1730,17 +1730,6 @@ export class Player implements IPlayer {
     // Sync camera/visibleTiles/instanced from CameraController (non-play + paused)
     if ((!this.isPlaying || this.isPaused) && this.cameraController) {
       const interp = this.cameraController.getInterpolatedValues(this.elapsedTime);
-      // Compute a plausible pivot from tile positions at seeked time
-      const seekIdx = this.getTileIndexAtTime(this.elapsedTime);
-      const seekTile = this.levelData.tiles?.[seekIdx];
-      const pivot = seekTile?.position
-        ? { x: seekTile.position[0], y: seekTile.position[1] }
-        : this.currentPivotPosition;
-      const target = this.cameraController.calculateTargetPosition(pivot, interp);
-      this.cameraPosition.x = target.x;
-      this.cameraPosition.y = target.y;
-      this.camera.position.x = target.x;
-      this.camera.position.y = target.y;
       this.adoZoom = interp.zoom;
       this.zoom = 100 / interp.zoom;
       this.camera.zoom = this.zoom * this.zoomMultiplier;
@@ -2271,6 +2260,20 @@ export class Player implements IPlayer {
 
     if (this.cameraController) {
       this.cameraController.seek(timeInLevel, this.currentPivotPosition);
+      // Update absolute camera position for non-play display
+      if (!this.isPlaying) {
+        const interp = this.cameraController.getInterpolatedValues(this.elapsedTime);
+        const seekIdx = this.getTileIndexAtTime(this.elapsedTime);
+        const seekTile = this.levelData.tiles?.[seekIdx];
+        const pivot = seekTile?.position
+          ? { x: seekTile.position[0], y: seekTile.position[1] }
+          : this.currentPivotPosition;
+        const target = this.cameraController.calculateTargetPosition(pivot, interp);
+        this.cameraPosition.x = target.x;
+        this.cameraPosition.y = target.y;
+        this.camera.position.x = target.x;
+        this.camera.position.y = target.y;
+      }
     }
 
     if (this.moveTrackManager) {
