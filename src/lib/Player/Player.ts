@@ -1094,6 +1094,8 @@ export class Player implements IPlayer {
   private handleTileClick(event: MouseEvent): void {
     if (this.isPlaying) return;
     if (!this.container) return;
+    // Ignore clicks on UI overlays (buttons, etc.) — only handle canvas area
+    if (event.target !== this.container && !(event.target as HTMLElement)?.closest?.('canvas')) return;
     const rect = this.container.getBoundingClientRect();
     const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     const y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
@@ -1736,7 +1738,7 @@ export class Player implements IPlayer {
           c.lerp(new Color(0, 1, 0), intensity * 0.5);
           const hex = c.getHexString();
           if (this.instancedMeshManager) {
-            this.instancedMeshManager.updateTileColor(idx, hex, base.secondaryColor);
+            this.instancedMeshManager.updateTileColor(idx, '#' + hex, this.formatHexColor(base.secondaryColor));
           }
           const mesh = this.tiles.get(idx.toString());
           if (mesh && mesh.material) {
