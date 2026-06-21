@@ -1092,6 +1092,7 @@ export class Player implements IPlayer {
   }
 
   private handleTileClick(event: MouseEvent): void {
+    if (this.isPlaying) return;
     if (!this.container) return;
     const rect = this.container.getBoundingClientRect();
     const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
@@ -1133,6 +1134,16 @@ export class Player implements IPlayer {
       this.restoreTileColor(this.selectedTileIndex);
     }
     this.selectedTileIndex = null;
+  }
+
+  public resetCameraZoomRotation(): void {
+    this.zoomMultiplier = 1.0;
+    this.camera.rotation.z = 0;
+    if (this.cameraController) {
+      const cam = this.cameraController.getCameraMode();
+      cam.rotation = 0;
+      cam.zoom = 100;
+    }
   }
 
   private restoreTileColor(index: number): void {
@@ -2157,6 +2168,7 @@ export class Player implements IPlayer {
   }
 
   get tileCount(): number { return this.levelData.tiles.length; }
+  get isPlayerPlaying(): boolean { return this.isPlaying; }
 
   public seekTo(timeMs: number, visualOnly?: boolean): void {
     const s = this.levelData.settings;

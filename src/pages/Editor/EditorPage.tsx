@@ -92,6 +92,7 @@ export default function EditorPage() {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (!previewerRef.current) return
+      if (previewerRef.current.isPlayerPlaying) return
       const cur = previewerRef.current.selectedTileIndex
       const len = previewerRef.current.tileCount
       if (len === 0) return
@@ -118,12 +119,25 @@ export default function EditorPage() {
 
   const handlePlayWithSeek = useCallback(() => {
     const p = previewerRef.current
-    if (playMode === 'preview' && p?.selectedTileIndex !== null && p) {
-      const t = p.getTileTimeMs(p.selectedTileIndex)
+    const selectedIdx = p?.selectedTileIndex ?? null
+    if (p) p.deselectTile()
+    if (playMode === 'preview' && selectedIdx !== null && p) {
+      handlePlay()
+      const t = p.getTileTimeMs(selectedIdx)
       p.seekTo(t)
+      return
     }
     handlePlay()
   }, [playMode, handlePlay])
+
+  const handleExitWithReset = useCallback(() => {
+    const p = previewerRef.current
+    if (p) {
+      p.deselectTile()
+      p.resetCameraZoomRotation()
+    }
+    handleExitPlayMode()
+  }, [handleExitPlayMode])
 
   const { isFullscreen, toggleFullscreen } = useFullscreen()
 
@@ -395,7 +409,7 @@ export default function EditorPage() {
                     : "bg-white/80 text-slate-700 hover:bg-slate-100"
                   } shadow-lg backdrop-blur-sm`}
                 title={t("editor.exitPlayMode")}
-                onClick={handleExitPlayMode}
+                onClick={handleExitWithReset}
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6L6 18M6 6l12 12" /></svg>
               </button>
