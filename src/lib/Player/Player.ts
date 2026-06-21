@@ -2030,6 +2030,14 @@ export class Player implements IPlayer {
       this.music.seek(Math.max(0, timeMs / 1000 - this.musicStartDelay + offset));
     }
 
+    if (this.hitsoundManager && this.hitsoundManager.isSynthesized() && timeInLevel > 0) {
+      this.hitsoundManager.startAtOffset(timeInLevel);
+    }
+
+    if (this.videoElement) {
+      this.videoElement.currentTime = Math.max(0, timeMs / 1000 - this.musicStartDelay);
+    }
+
     if (this.cameraController) {
       this.cameraController.seek(timeInLevel, this.currentPivotPosition);
     }

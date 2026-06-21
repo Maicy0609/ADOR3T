@@ -305,35 +305,37 @@ export default function EditorPage() {
 
       {/* Full-screen Canvas Area */}
       <div ref={containerRef} className="absolute inset-0">
-        {playModeActive && (
-          <Button
-            variant="outline"
-            size="icon"
-            className={`absolute top-16 right-32 ${isDark
-                ? "border-slate-600 text-slate-300 hover:bg-slate-700 hover:text-white"
-                : "border-slate-300 text-slate-700 hover:bg-slate-50 hover:text-slate-900"
-              } bg-transparent`}
-            title={t("editor.exitPlayMode")}
-            onClick={handleExitPlayMode}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><path d="M9 9l6 6M15 9l-6 6" /></svg>
-          </Button>
-        )}
-        <button
-          className={`absolute bottom-4 left-4 w-14 h-14 rounded-full flex items-center justify-center transition-colors ${isDark
-              ? "bg-slate-700/80 text-slate-200 hover:bg-slate-600"
-              : "bg-white/80 text-slate-700 hover:bg-slate-100"
-            } shadow-lg backdrop-blur-sm`}
-          title={playMode === "play" ? t("editor.pause") : t("editor.play")}
-          id="play-button"
-          onClick={handlePlay}
-        >
-          {playMode === "play" ? (
-            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></svg>
-          ) : (
-            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3" /></svg>
-          )}
-        </button>
+        <div className="absolute bottom-4 left-4">
+          <div className="relative inline-block">
+            <button
+              className={`w-14 h-14 rounded-full flex items-center justify-center transition-colors ${isDark
+                  ? "bg-slate-700/80 text-slate-200 hover:bg-slate-600"
+                  : "bg-white/80 text-slate-700 hover:bg-slate-100"
+                } shadow-lg backdrop-blur-sm`}
+              title={playMode === "play" ? t("editor.pause") : t("editor.play")}
+              id="play-button"
+              onClick={handlePlay}
+            >
+              {playMode === "play" ? (
+                <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></svg>
+              ) : (
+                <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3" /></svg>
+              )}
+            </button>
+            {playModeActive && (
+              <button
+                className={`absolute -bottom-1 -right-1 w-7 h-7 rounded-full flex items-center justify-center transition-colors ${isDark
+                    ? "bg-slate-700/80 text-slate-200 hover:bg-slate-600"
+                    : "bg-white/80 text-slate-700 hover:bg-slate-100"
+                  } shadow-lg backdrop-blur-sm`}
+                title={t("editor.exitPlayMode")}
+                onClick={handleExitPlayMode}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6L6 18M6 6l12 12" /></svg>
+              </button>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   )
