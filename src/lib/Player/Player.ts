@@ -1870,7 +1870,7 @@ export class Player implements IPlayer {
       // Seek music/hitsound to the target time
       if (this.music && this.music.hasAudio) {
         const offset = (s.offset || 0) / 1000;
-        this.music.seek(Math.max(0, startAtMs / 1000 - this.musicStartDelay + offset));
+        this.music.seek(Math.max(0, timeInLevel + offset));
         // Start music immediately so updatePlayer doesn't call playScheduled
         if (!this.music.isPlaying) {
           this.music.play();
