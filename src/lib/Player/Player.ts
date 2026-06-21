@@ -1861,6 +1861,17 @@ export class Player implements IPlayer {
       if (this.moveTrackManager) {
         this.moveTrackManager.fastForwardTo(timeInLevel);
       }
+      // Seek music/hitsound to the target time
+      if (this.music && this.music.hasAudio) {
+        const offset = (s.offset || 0) / 1000;
+        this.music.seek(Math.max(0, startAtMs / 1000 - this.musicStartDelay + offset));
+      }
+      if (this.hitsoundManager && this.hitsoundManager.isSynthesized() && timeInLevel > 0) {
+        this.hitsoundManager.startAtOffset(timeInLevel);
+      }
+      if (this.videoElement) {
+        this.videoElement.currentTime = Math.max(0, startAtMs / 1000 - this.musicStartDelay);
+      }
     }
 
     // Calculate delay for countdown
