@@ -140,9 +140,6 @@ export class Player implements IPlayer {
   private tileColorManager: TileColorManager;
   
   // Decoration Manager
-  // ── 装饰物开关（暂未完成，release 时关闭） ──────────────────────────
-  public static enableDecorations: boolean = false;
-
   private decorationManager: DecorationManager | null = null;
 
   // MoveTrack Manager
@@ -325,17 +322,17 @@ export class Player implements IPlayer {
     this.cameraController.buildCameraTimeline(this.tileCameraEvents);
 
     // Initialize Decoration Manager
-    if (Player.enableDecorations) {
-      this.decorationManager = new DecorationManager(
-        this.scene,
-        this.levelData,
-        this.tileStartTimes,
-        this.tileBPM
-      );
-      this.decorationManager.init();
-      this.decorationManager.buildTimelineKeyframes(this.timelineManager);
-      (this.decorationManager as any)._timelineManager = this.timelineManager;
-    }
+    this.decorationManager = new DecorationManager(
+      this.scene,
+      this.levelData,
+      this.tileStartTimes,
+      this.tileBPM
+    );
+    this.decorationManager.init();
+
+    // Build decoration keyframes into TimelineManager for unified seeking
+    this.decorationManager.buildTimelineKeyframes(this.timelineManager);
+    (this.decorationManager as any)._timelineManager = this.timelineManager;
 
     // Initialize MoveTrack Manager with TimelineManager
     this.moveTrackManager = new MoveTrackManager(this.timelineManager);
