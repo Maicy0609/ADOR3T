@@ -1730,10 +1730,13 @@ export class Player implements IPlayer {
     // Sync camera zoom/rotation from CameraController (needed for non-play seek)
     if (!this.isPlaying && this.cameraController) {
       const interp = this.cameraController.getInterpolatedValues(this.elapsedTime);
-      // Calculate absolute position from relative cameraMode + pivot
-      const target = this.cameraController.calculateTargetPosition(
-        this.currentPivotPosition, interp
-      );
+      // Compute a plausible pivot from tile positions at seeked time
+      const seekIdx = this.getTileIndexAtTime(this.elapsedTime);
+      const seekTile = this.levelData.tiles?.[seekIdx];
+      const pivot = seekTile?.position
+        ? { x: seekTile.position[0], y: seekTile.position[1] }
+        : this.currentPivotPosition;
+      const target = this.cameraController.calculateTargetPosition(pivot, interp);
       this.cameraPosition.x = target.x;
       this.cameraPosition.y = target.y;
       this.camera.position.x = target.x;
