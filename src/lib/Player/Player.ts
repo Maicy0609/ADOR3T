@@ -1962,7 +1962,7 @@ export class Player implements IPlayer {
     // Start pre-synthesized hitsound track
     const synthesized = this.hitsoundManager.isSynthesized();
     console.log('[Player] startPlay - hitsound synthesized:', synthesized, 'hitsoundStartDelay:', hitsoundStartDelay);
-    if (synthesized) {
+    if (synthesized && startAtMs <= 0) {
         this.hitsoundManager.start(hitsoundStartDelay);
     }
   }
