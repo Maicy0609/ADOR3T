@@ -1727,6 +1727,15 @@ export class Player implements IPlayer {
   }
 
   public renderPlayer(delta: number): void {
+    // Sync camera zoom/rotation from CameraController (needed for non-play seek)
+    if (!this.isPlaying && this.cameraController) {
+      const interp = this.cameraController.getInterpolatedValues(this.elapsedTime);
+      this.adoZoom = interp.zoom;
+      this.zoom = 100 / interp.zoom;
+      this.camera.zoom = this.zoom * this.zoomMultiplier;
+      this.camera.updateProjectionMatrix();
+      this.camera.rotation.z = interp.rotation * (Math.PI / 180);
+    }
     // Selection green flash animation (disabled during playback)
     if (this.selectedTileIndex !== null && !this.isPlaying) {
       this.selectionTime += delta;
