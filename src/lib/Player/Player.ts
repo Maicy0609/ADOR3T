@@ -1865,6 +1865,10 @@ export class Player implements IPlayer {
       if (this.music && this.music.hasAudio) {
         const offset = (s.offset || 0) / 1000;
         this.music.seek(Math.max(0, startAtMs / 1000 - this.musicStartDelay + offset));
+        // Start music immediately so updatePlayer doesn't call playScheduled
+        if (!this.music.isPlaying) {
+          this.music.play();
+        }
       }
       if (this.hitsoundManager && this.hitsoundManager.isSynthesized() && timeInLevel > 0) {
         this.hitsoundManager.startAtOffset(timeInLevel);
@@ -1872,6 +1876,8 @@ export class Player implements IPlayer {
       if (this.videoElement) {
         this.videoElement.currentTime = Math.max(0, startAtMs / 1000 - this.musicStartDelay);
       }
+      // Use performance.now() timekeeping (AudioContext not yet synced)
+      this.useAudioContextTime = false;
     }
 
     // Calculate delay for countdown
