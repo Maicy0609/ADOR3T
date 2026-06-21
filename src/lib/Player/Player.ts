@@ -1746,6 +1746,8 @@ export class Player implements IPlayer {
       this.camera.zoom = this.zoom * this.zoomMultiplier;
       this.camera.updateProjectionMatrix();
       this.camera.rotation.z = interp.rotation * (Math.PI / 180);
+      this.updateVisibleTiles();
+      this.syncInstancedTiles();
     }
     // Selection green flash animation (disabled during playback)
     if (this.selectedTileIndex !== null && !this.isPlaying) {
@@ -2273,6 +2275,10 @@ export class Player implements IPlayer {
 
     if (this.moveTrackManager) {
       this.moveTrackManager.fastForwardTo(timeInLevel);
+      // Mark tiles as dirty so instanced mesh sync picks up the changes
+      for (const idx of this.timelineManager.getAllTileIndices()) {
+        this.dirtyTiles.add(idx);
+      }
     }
   }
 
