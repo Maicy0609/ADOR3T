@@ -1120,6 +1120,7 @@ export class Player implements IPlayer {
 
   public selectTile(index: number): void {
     if (index < 0 || index >= this.levelData.tiles.length) return;
+    console.log('[selectTile]', index);
     // Restore old selection color before switching
     if (this.selectedTileIndex !== null && this.selectedTileIndex !== index) {
       this.restoreTileColor(this.selectedTileIndex);
@@ -1150,8 +1151,10 @@ export class Player implements IPlayer {
     if (this.tileColorManager) {
       const base = this.tileColorManager.getTileColor(index);
       if (base) {
+        const colorHex = this.formatHexColor(base.color);
+        const bgHex = this.formatHexColor(base.secondaryColor);
         if (this.instancedMeshManager) {
-          this.instancedMeshManager.updateTileColor(index, base.color, base.secondaryColor);
+          this.instancedMeshManager.updateTileColor(index, colorHex, bgHex);
         }
         const mesh = this.tiles.get(index.toString());
         if (mesh && mesh.material) {
@@ -1729,7 +1732,7 @@ export class Player implements IPlayer {
       if (this.tileColorManager) {
         const base = this.tileColorManager.getTileColor(idx);
         if (base) {
-          const c = new Color(base.color);
+          const c = new Color(this.formatHexColor(base.color));
           c.lerp(new Color(0, 1, 0), intensity * 0.5);
           const hex = c.getHexString();
           if (this.instancedMeshManager) {
