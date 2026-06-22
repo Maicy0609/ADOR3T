@@ -26,11 +26,12 @@ export class TimelineManager {
         baseScales: Vector2[],
         baseOpacities: number[],
         totalTiles: number,
+        settings?: any,
     ) {
         this.tileStartTimes = tileStartTimes;
         this.tileBPM = tileBPM;
         this.totalTiles = totalTiles;
-        this.build(actions, basePositions, baseRotations, baseScales, baseOpacities);
+        this.build(actions, basePositions, baseRotations, baseScales, baseOpacities, settings);
     }
 
     private build(
@@ -39,6 +40,7 @@ export class TimelineManager {
         baseRotations: number[],
         baseScales: Vector2[],
         baseOpacities: number[],
+        settings?: any,
     ): void {
         const perTileMoveTrack: Map<number, {
             time: number; duration: number; event: any; floor: number
@@ -111,6 +113,10 @@ export class TimelineManager {
         });
         this.triggerEvents = triggerEntries;
 
+        // Build Appear/Disappear keyframes FIRST from AnimateTrack events,
+        // then MoveTrack SECOND so MoveTrack opacity/position/scale can override them.
+        this.buildAnimateTrackKeyframes(actions, basePositions, baseRotations, baseScales, baseOpacities, settings);
+
         for (const [tileIdx, events] of perTileMoveTrack) {
             events.sort((a, b) => {
                 const dt = a.time - b.time;
@@ -137,19 +143,12 @@ export class TimelineManager {
         const baseSY = tileIdx >= 0 && tileIdx < baseScales.length ? baseScales[tileIdx].y : 1;
         const baseOp = tileIdx >= 0 && tileIdx < baseOpacities.length ? baseOpacities[tileIdx] : 1;
 
-        const initX = this.ensureTimeline(`tile:${tileIdx}`, 'positionX');
-        const initY = this.ensureTimeline(`tile:${tileIdx}`, 'positionY');
-        const initRot = this.ensureTimeline(`tile:${tileIdx}`, 'rotation');
-        const initSX = this.ensureTimeline(`tile:${tileIdx}`, 'scaleX');
-        const initSY = this.ensureTimeline(`tile:${tileIdx}`, 'scaleY');
-        const initOp = this.ensureTimeline(`tile:${tileIdx}`, 'opacity');
-
-        initX.push({ time: 0, value: baseX, ease: null });
-        initY.push({ time: 0, value: baseY, ease: null });
-        initRot.push({ time: 0, value: baseRot, ease: null });
-        initSX.push({ time: 0, value: baseSX, ease: null });
-        initSY.push({ time: 0, value: baseSY, ease: null });
-        initOp.push({ time: 0, value: baseOp, ease: null });
+        this.addKeyframe(`tile:${tileIdx}`, 'positionX', 0, baseX, null);
+        this.addKeyframe(`tile:${tileIdx}`, 'positionY', 0, baseY, null);
+        this.addKeyframe(`tile:${tileIdx}`, 'rotation', 0, baseRot, null);
+        this.addKeyframe(`tile:${tileIdx}`, 'scaleX', 0, baseSX, null);
+        this.addKeyframe(`tile:${tileIdx}`, 'scaleY', 0, baseSY, null);
+        this.addKeyframe(`tile:${tileIdx}`, 'opacity', 0, baseOp, null);
 
         let accX = baseX, accY = baseY, accRot = baseRot, accSX = baseSX, accSY = baseSY, accOp = baseOp;
 
@@ -485,5 +484,285 @@ export class TimelineManager {
         }
 
         return dirty;
+    }
+
+    /* ── AnimateTrack (Appear/Disappear) ─────────────────────────── */
+
+    private buildAnimateTrackKeyframes(
+        actions: any[],
+        basePositions: Vector2[],
+        baseRotations: number[],
+        baseScales: Vector2[],
+        baseOpacities: number[],
+        settings?: any,
+    ): void {
+        const animateTrackEvents: { floor: number; event: any; id: number }[] = [];
+        for (const action of actions) {
+            if (!isEventActive(action)) continue;
+            if (action.eventType === 'AnimateTrack') {
+                animateTrackEvents.push({
+                    floor: action.floor ?? 0,
+                    event: action,
+                    id: action.id ?? Infinity,
+                });
+            }
+        }
+        animateTrackEvents.sort((a, b) => {
+            if (a.floor !== b.floor) return a.floor - b.floor;
+            return a.id - b.id;
+        });
+
+        let appearType: string = settings?.trackAnimation || 'None';
+        let disappearType: string = settings?.trackDisappearAnimation || 'None';
+        let beatsAhead: number = settings?.beatsAhead ?? 3;
+        let beatsBehind: number = settings?.beatsBehind ?? 4;
+
+        // C# ApplyEventsToFloors speed ratio tracking (num5/num6)
+        // num5 = tileBPM at the AT event before the most recent
+        // num6 = tileBPM at the most recent AT event
+        // flag2 = whether the most recent AT event had trackAnimation enabled
+        const baseTileBPM = this.tileBPM[0] || 100;
+        let num5 = baseTileBPM;
+        let num6 = baseTileBPM;
+        let flag2 = false;
+
+        let eventIdx = 0;
+        for (let floor = 0; floor < this.totalTiles; floor++) {
+            let hadAnimateTrack = false;
+            let floorFlag2 = false;
+
+            while (eventIdx < animateTrackEvents.length && animateTrackEvents[eventIdx].floor === floor) {
+                const evt = animateTrackEvents[eventIdx].event;
+                const hasTrackAnim = isFieldEnabled(evt, 'trackAnimation');
+                const hasTrackDisappear = isFieldEnabled(evt, 'trackDisappearAnimation');
+
+                if (hasTrackAnim) {
+                    appearType = evt.trackAnimation || 'None';
+                    if (evt.beatsAhead != null) beatsAhead = evt.beatsAhead;
+                }
+                if (hasTrackDisappear) {
+                    disappearType = evt.trackDisappearAnimation || 'None';
+                    if (evt.beatsBehind != null) beatsBehind = evt.beatsBehind;
+                }
+
+                // Update flag2 from this AT event (always, per C#)
+                floorFlag2 = hasTrackAnim;
+                hadAnimateTrack = true;
+                eventIdx++;
+            }
+
+            if (hadAnimateTrack) {
+                num5 = num6;
+                num6 = this.tileBPM[floor] || baseTileBPM;
+                flag2 = floorFlag2;
+            }
+
+            // Speed ratio scaling: beatsAhead *= speed / (flag2 ? num6 : num5)
+            const speed = this.tileBPM[floor] || baseTileBPM;
+            const refBPM = flag2 ? num6 : num5;
+            const speedRatio = speed / refBPM;
+            const scaledBeatsAhead = beatsAhead * speedRatio;
+            const scaledBeatsBehind = beatsBehind * speedRatio;
+
+            if (appearType !== 'None' && scaledBeatsAhead > 0) {
+                this.buildAppearKeyframes(floor, appearType, scaledBeatsAhead, basePositions, baseRotations, baseScales, baseOpacities);
+            }
+            if (disappearType !== 'None' && scaledBeatsBehind > 0 && floor < this.totalTiles - 1) {
+                const nextEntryTime = this.tileStartTimes[floor + 1] ?? 0;
+                this.buildDisappearKeyframes(floor, disappearType, scaledBeatsBehind, nextEntryTime, basePositions, baseRotations, baseScales, baseOpacities);
+            }
+        }
+    }
+
+    private buildAppearKeyframes(
+        floor: number,
+        animType: string,
+        beatsAhead: number,
+        basePositions: Vector2[],
+        baseRotations: number[],
+        baseScales: Vector2[],
+        baseOpacities: number[],
+    ): void {
+        const entryTime = this.tileStartTimes[floor] || 0;
+        const bpm = this.tileBPM[floor] || 100;
+        const secPerBeat = 60 / bpm;
+
+        const isDropOrRise = animType === 'Drop' || animType === 'Rise';
+        const tiles = isDropOrRise ? beatsAhead * 2 : beatsAhead;
+        const appearStartTime = Math.max(entryTime - tiles * secPerBeat, 0);
+
+        // Don't generate appear keyframes that start at/before time 0 —
+        // At time 0 the tile should be in its base state for preview.
+        if (appearStartTime <= 0) return;
+        const appearDuration = isDropOrRise
+            ? secPerBeat * beatsAhead
+            : Math.min(secPerBeat * 0.5, 0.5);
+        const appearEndTime = appearStartTime + appearDuration;
+
+        const baseX = basePositions[floor]?.x ?? 0;
+        const baseY = basePositions[floor]?.y ?? 0;
+        const baseRot = baseRotations[floor] ?? 0;
+        const baseSX = baseScales[floor]?.x ?? 1;
+        const baseSY = baseScales[floor]?.y ?? 1;
+        const baseOp = baseOpacities[floor] ?? 1;
+
+        const entity = `tile:${floor}`;
+        const ease = isDropOrRise ? 'Linear.easeNone' : 'Quad.easeOut';
+
+        // Add pre-keyframes at appearStartTime - epsilon so sample()
+        // returns base values right before the animation starts.
+        // Without these, sample interpolates from time 0 → appearStartTime,
+        // making tiles semi-transparent/invisible before their animation.
+        const preTime = appearStartTime - 1e-7;
+        this.addKeyframe(entity, 'positionX', preTime, baseX, null);
+        this.addKeyframe(entity, 'positionY', preTime, baseY, null);
+        this.addKeyframe(entity, 'rotation', preTime, baseRot, null);
+        this.addKeyframe(entity, 'scaleX', preTime, baseSX, null);
+        this.addKeyframe(entity, 'scaleY', preTime, baseSY, null);
+        this.addKeyframe(entity, 'opacity', preTime, baseOp, null);
+
+        switch (animType) {
+            case 'Extend': {
+                const prevX = floor > 0 ? (basePositions[floor - 1]?.x ?? baseX) : baseX;
+                const prevY = floor > 0 ? (basePositions[floor - 1]?.y ?? baseY) : baseY;
+                this.instantKeyframe(entity, 'positionX', appearStartTime, prevX);
+                this.instantKeyframe(entity, 'positionY', appearStartTime, prevY);
+                this.instantKeyframe(entity, 'scaleX', appearStartTime, 0);
+                this.instantKeyframe(entity, 'scaleY', appearStartTime, 0);
+                this.addTween(entity, 'positionX', appearStartTime, appearEndTime, prevX, baseX, ease);
+                this.addTween(entity, 'positionY', appearStartTime, appearEndTime, prevY, baseY, ease);
+                this.addTween(entity, 'scaleX', appearStartTime, appearEndTime, 0, baseSX, ease);
+                this.addTween(entity, 'scaleY', appearStartTime, appearEndTime, 0, baseSY, ease);
+                break;
+            }
+            case 'Assemble':
+            case 'Assemble_Far': {
+                const range = animType === 'Assemble_Far' ? 8 : 4;
+                const rotRange = 75;
+                const seed = floor * 7919;
+                const dx = this.seededRandom(seed) * range * 2 - range;
+                const dy = this.seededRandom(seed + 1) * range * 2 - range;
+                const dr = (this.seededRandom(seed + 2) * rotRange * 2 - rotRange) * Math.PI / 180;
+                this.instantKeyframe(entity, 'positionX', appearStartTime, baseX + dx);
+                this.instantKeyframe(entity, 'positionY', appearStartTime, baseY + dy);
+                this.instantKeyframe(entity, 'rotation', appearStartTime, baseRot + dr);
+                this.addTween(entity, 'positionX', appearStartTime, appearEndTime, baseX + dx, baseX, ease);
+                this.addTween(entity, 'positionY', appearStartTime, appearEndTime, baseY + dy, baseY, ease);
+                this.addTween(entity, 'rotation', appearStartTime, appearEndTime, baseRot + dr, baseRot, ease);
+                break;
+            }
+            case 'Grow': {
+                this.instantKeyframe(entity, 'scaleX', appearStartTime, 0);
+                this.instantKeyframe(entity, 'scaleY', appearStartTime, 0);
+                this.addTween(entity, 'scaleX', appearStartTime, appearEndTime, 0, baseSX, ease);
+                this.addTween(entity, 'scaleY', appearStartTime, appearEndTime, 0, baseSY, ease);
+                break;
+            }
+            case 'Grow_Spin': {
+                this.instantKeyframe(entity, 'scaleX', appearStartTime, 0);
+                this.instantKeyframe(entity, 'scaleY', appearStartTime, 0);
+                this.instantKeyframe(entity, 'rotation', appearStartTime, baseRot - Math.PI);
+                this.addTween(entity, 'scaleX', appearStartTime, appearEndTime, 0, baseSX, ease);
+                this.addTween(entity, 'scaleY', appearStartTime, appearEndTime, 0, baseSY, ease);
+                this.addTween(entity, 'rotation', appearStartTime, appearEndTime, baseRot - Math.PI, baseRot, ease);
+                break;
+            }
+            case 'Fade': {
+                this.instantKeyframe(entity, 'opacity', appearStartTime, 0);
+                this.addTween(entity, 'opacity', appearStartTime, appearEndTime, 0, baseOp, ease);
+                break;
+            }
+            case 'Drop': {
+                const scaleDur = appearDuration / 8;
+                this.instantKeyframe(entity, 'positionY', appearStartTime, baseY + 8);
+                this.instantKeyframe(entity, 'scaleX', appearStartTime, 0);
+                this.instantKeyframe(entity, 'scaleY', appearStartTime, 0);
+                this.addTween(entity, 'positionY', appearStartTime, appearEndTime, baseY + 8, baseY, ease);
+                this.addTween(entity, 'scaleX', appearStartTime, appearStartTime + scaleDur, 0, baseSX, 'Quad.easeOut');
+                this.addTween(entity, 'scaleY', appearStartTime, appearStartTime + scaleDur, 0, baseSY, 'Quad.easeOut');
+                break;
+            }
+            case 'Rise': {
+                const scaleDur = appearDuration / 8;
+                this.instantKeyframe(entity, 'positionY', appearStartTime, baseY - 8);
+                this.instantKeyframe(entity, 'scaleX', appearStartTime, 0);
+                this.instantKeyframe(entity, 'scaleY', appearStartTime, 0);
+                this.addTween(entity, 'positionY', appearStartTime, appearEndTime, baseY - 8, baseY, ease);
+                this.addTween(entity, 'scaleX', appearStartTime, appearStartTime + scaleDur, 0, baseSX, 'Quad.easeOut');
+                this.addTween(entity, 'scaleY', appearStartTime, appearStartTime + scaleDur, 0, baseSY, 'Quad.easeOut');
+                break;
+            }
+        }
+    }
+
+    private buildDisappearKeyframes(
+        floor: number,
+        animType: string,
+        beatsBehind: number,
+        nextEntryTime: number,
+        basePositions: Vector2[],
+        baseRotations: number[],
+        baseScales: Vector2[],
+        baseOpacities: number[],
+    ): void {
+        const bpm = this.tileBPM[floor] || 100;
+        const secPerBeat = 60 / bpm;
+        const disappearStartTime = nextEntryTime + beatsBehind * secPerBeat;
+        const disappearDuration = Math.min(secPerBeat * 0.5, 0.5);
+        const disappearEndTime = disappearStartTime + disappearDuration;
+
+        const baseX = basePositions[floor]?.x ?? 0;
+        const baseY = basePositions[floor]?.y ?? 0;
+        const baseRot = baseRotations[floor] ?? 0;
+        const baseSX = baseScales[floor]?.x ?? 1;
+        const baseSY = baseScales[floor]?.y ?? 1;
+        const baseOp = baseOpacities[floor] ?? 1;
+
+        const entity = `tile:${floor}`;
+        const ease = 'Quad.easeOut';
+
+        switch (animType) {
+            case 'Scatter':
+            case 'Scatter_Far': {
+                const range = animType === 'Scatter_Far' ? 8 : 4;
+                const seed = floor * 3571 + 1000;
+                const dx = this.seededRandom(seed) * range * 2 - range;
+                const dy = this.seededRandom(seed + 1) * range * 2 - range;
+                const dr = (this.seededRandom(seed + 2) * 150 - 75) * Math.PI / 180;
+                this.addTween(entity, 'positionX', disappearStartTime, disappearEndTime, baseX, baseX + dx, ease);
+                this.addTween(entity, 'positionY', disappearStartTime, disappearEndTime, baseY, baseY + dy, ease);
+                this.addTween(entity, 'rotation', disappearStartTime, disappearEndTime, baseRot, baseRot + dr, ease);
+                break;
+            }
+            case 'Retract': {
+                const nextX = basePositions[floor + 1]?.x ?? baseX;
+                const nextY = basePositions[floor + 1]?.y ?? baseY;
+                this.addTween(entity, 'positionX', disappearStartTime, disappearEndTime, baseX, nextX, ease);
+                this.addTween(entity, 'positionY', disappearStartTime, disappearEndTime, baseY, nextY, ease);
+                this.addTween(entity, 'scaleX', disappearStartTime, disappearEndTime, baseSX, 0, ease);
+                this.addTween(entity, 'scaleY', disappearStartTime, disappearEndTime, baseSY, 0, ease);
+                break;
+            }
+            case 'Shrink': {
+                this.addTween(entity, 'scaleX', disappearStartTime, disappearEndTime, baseSX, 0, ease);
+                this.addTween(entity, 'scaleY', disappearStartTime, disappearEndTime, baseSY, 0, ease);
+                break;
+            }
+            case 'Shrink_Spin': {
+                this.addTween(entity, 'scaleX', disappearStartTime, disappearEndTime, baseSX, 0, ease);
+                this.addTween(entity, 'scaleY', disappearStartTime, disappearEndTime, baseSY, 0, ease);
+                this.addTween(entity, 'rotation', disappearStartTime, disappearEndTime, baseRot, baseRot - Math.PI, ease);
+                break;
+            }
+            case 'Fade': {
+                this.addTween(entity, 'opacity', disappearStartTime, disappearEndTime, baseOp, 0, ease);
+                break;
+            }
+        }
+    }
+
+    private seededRandom(seed: number): number {
+        const x = Math.sin(seed * 12.9898 + seed * 78.233) * 43758.5453;
+        return x - Math.floor(x);
     }
 }

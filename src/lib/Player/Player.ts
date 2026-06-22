@@ -319,6 +319,7 @@ export class Player implements IPlayer {
       baseScales,
       baseOpacities,
       this.levelData.tiles.length,
+      this.levelData.settings,
     );
 
     // Update camera controller with calculated values
