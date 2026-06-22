@@ -3,6 +3,7 @@ import { TextureLoader, Texture, SRGBColorSpace, RepeatWrapping, SpriteMaterial,
 import endUrl from '@/assets/events/End.json';
 import speedPlusUrl from '@/assets/events/Speed+.json';
 import speedMinusUrl from '@/assets/events/Speed-.json';
+import doubleSnailUrl from '@/assets/events/DoubleSnail.json';
 import twirlB1Url from '@/assets/events/TwirlB1.json';
 import twirlR1Url from '@/assets/events/TwirlR1.json';
 
@@ -32,18 +33,20 @@ function loadFlipped(key: string, url: string): Texture {
 const _e = () => load('End', endUrl);
 const _sp = () => load('Speed+', speedPlusUrl);
 const _sm = () => load('Speed-', speedMinusUrl);
+const _ds = () => load('DoubleSnail', doubleSnailUrl);
 const _tb1 = () => load('TwirlB1', twirlB1Url);
 const _tb1n = () => loadFlipped('TwirlB-1', twirlB1Url);
 const _tr1 = () => load('TwirlR1', twirlR1Url);
 const _tr1n = () => loadFlipped('TwirlR-1', twirlR1Url);
 
-export type IconType = 'End' | 'Speed+' | 'Speed-' | 'TwirlB1' | 'TwirlB-1' | 'TwirlR1' | 'TwirlR-1';
+export type IconType = 'End' | 'Speed+' | 'Speed-' | 'DoubleSnail' | 'TwirlB1' | 'TwirlB-1' | 'TwirlR1' | 'TwirlR-1';
 
 export function getIconTexture(type: IconType): Texture {
     switch (type) {
         case 'End': return _e();
         case 'Speed+': return _sp();
         case 'Speed-': return _sm();
+        case 'DoubleSnail': return _ds();
         case 'TwirlB1': return _tb1();
         case 'TwirlB-1': return _tb1n();
         case 'TwirlR1': return _tr1();
@@ -58,7 +61,9 @@ export function getTwirlTexture(angle: number, dir: number): IconType {
 }
 
 export function getSetSpeedTexture(ratio: number): IconType {
-    return ratio > 1.05 ? 'Speed+' : 'Speed-';
+    if (ratio > 1.05) return 'Speed+';
+    if (ratio <= 0.5) return 'DoubleSnail';
+    return 'Speed-';
 }
 
 export function getIconTextureForCustomFloor(trackIcon: string): IconType | null {
@@ -66,8 +71,8 @@ export function getIconTextureForCustomFloor(trackIcon: string): IconType | null
         case 'Swirl': return 'TwirlB1';
         case 'Rabbit':
         case 'DoubleRabbit': return 'Speed+';
-        case 'Snail':
-        case 'DoubleSnail': return 'Speed-';
+        case 'Snail': return 'Speed-';
+        case 'DoubleSnail': return 'DoubleSnail';
         default: return null;
     }
 }
