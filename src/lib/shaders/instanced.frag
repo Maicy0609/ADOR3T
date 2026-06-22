@@ -11,7 +11,8 @@ varying float vOpacity;
 varying vec3 vWorldPosition;
 varying float vTexSeed;
 varying float vFloorIconType;
-varying vec2 vTileCenter;
+varying vec2 vIconLocalPos;
+varying float vFloorIconAngle;
 
 void main() {
     vec3 finalColor = mix(vInstanceBgColor, vInstanceColor, vColor.r);
@@ -27,9 +28,16 @@ void main() {
         finalColor *= texColor.rgb;
     }
 
-    // Floor icon overlay — tile-center-relative UV
+    // Floor icon overlay — rotate UV by ADOFAI path direction angle
     if (vFloorIconType > 0.5 && uIconSize > 0.0) {
-        vec2 iconUv = clamp((vWorldPosition.xy - vTileCenter) / uIconSize + 0.5, 0.0, 1.0);
+        float iconAngle = -vFloorIconAngle;
+        float c = cos(iconAngle);
+        float s = sin(iconAngle);
+        vec2 rotatedPos = vec2(
+            vIconLocalPos.x * c - vIconLocalPos.y * s,
+            vIconLocalPos.x * s + vIconLocalPos.y * c
+        );
+        vec2 iconUv = clamp(rotatedPos / uIconSize + 0.5, 0.0, 1.0);
         iconUv.x = iconUv.x / uIconAtlasCols + (vFloorIconType - 1.0) / uIconAtlasCols;
         vec4 iconColor = texture2D(uIconAtlas, iconUv);
         if (iconColor.a > 0.1) {

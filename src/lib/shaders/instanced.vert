@@ -3,6 +3,7 @@ attribute vec3 iBgColor;
 attribute float iOpacity;
 attribute float iTexSeed;
 attribute float iFloorIconType;
+attribute float iFloorIconAngle;
 
 varying vec3 vColor;
 varying vec3 vInstanceColor;
@@ -11,7 +12,8 @@ varying float vOpacity;
 varying vec3 vWorldPosition;
 varying float vTexSeed;
 varying float vFloorIconType;
-varying vec2 vTileCenter;
+varying vec2 vIconLocalPos;
+varying float vFloorIconAngle;
 
 void main() {
     vColor = color;
@@ -20,10 +22,11 @@ void main() {
     vOpacity = iOpacity;
     vTexSeed = iTexSeed;
     vFloorIconType = iFloorIconType;
+    vFloorIconAngle = iFloorIconAngle;
+    vIconLocalPos = position.xy;
 
     vec4 worldPos = modelMatrix * instanceMatrix * vec4(position, 1.0);
     vWorldPosition = worldPos.xyz;
-    vTileCenter = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xy;
 
     gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0);
 }

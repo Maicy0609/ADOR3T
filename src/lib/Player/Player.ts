@@ -400,6 +400,20 @@ export class Player implements IPlayer {
   }
 
   /**
+   * Compute floor icon rotation angle for shader.
+   * Twirl icons follow path direction with CW/CCW adjustment:
+   *   CCW track: direction + π (180° CCW)
+   *   CW track:  direction - π/3 (60° CW)
+   * Speed/End icons: 0 (fixed to tile itself)
+   */
+  private getFloorIconAngle(index: number, hasTwirl: boolean): number {
+    if (!hasTwirl) return 0;
+    const dirRad = (this.getResolvedTileDirection(index) * Math.PI) / 180;
+    const isCW = this.tileIsCW[index];
+    return isCW ? dirRad - Math.PI / 3 : dirRad + Math.PI + Math.PI / 6;
+  }
+
+  /**
    * Helper for InstancedMeshManager to generate geometry
    */
   private generateGeometryFromShapeKey(shapeKey: string): BufferGeometry | null {
@@ -1546,6 +1560,7 @@ export class Player implements IPlayer {
         const idx = parseInt(id, 10);
         if (!isNaN(idx)) {
           this.instancedMeshManager.setFloorIconType(idx, mesh.userData.floorIconType ?? 0);
+          this.instancedMeshManager.setFloorIconAngle(idx, mesh.userData.floorIconAngle ?? 0);
         }
       }
       return;
@@ -1566,8 +1581,9 @@ export class Player implements IPlayer {
             effectiveOpacity
         );
         this.instancedMeshManager!.setTileVisibility(index, effectiveOpacity > 0.001);
-        // Always sync floor icon type
+        // Always sync floor icon type and direction angle
         this.instancedMeshManager!.setFloorIconType(index, mesh.userData.floorIconType ?? 0);
+        this.instancedMeshManager!.setFloorIconAngle(index, mesh.userData.floorIconAngle ?? 0);
     });
     this.dirtyTiles.clear();
   }
@@ -2485,13 +2501,10 @@ export class Player implements IPlayer {
                 this.instancedMeshManager.updateTile(
                     i, newShapeKey,
                     tileMesh.position, tileMesh.rotation as Euler, tileMesh.scale,
-                    rendered.color, rendered.bgcolor, rendered.opacity, true, texSeed
+                    rendered.color, rendered.bgcolor, rendered.opacity, true, texSeed,
+                    tileMesh.userData.floorIconType ?? 0,
+                    tileMesh.userData.floorIconAngle ?? 0
                 );
-                // Restore floor icon type (updateTile resets it to 0)
-                const fType = tileMesh.userData.floorIconType ?? 0;
-                if (fType > 0) {
-                    this.instancedMeshManager.setFloorIconType(i, fType);
-                }
             }
         }
     }
@@ -2965,6 +2978,7 @@ export class Player implements IPlayer {
             this.scene.add(tileMesh);
             this.instancedMeshManager.setTileVisibility(idx, true);
             this.instancedMeshManager.setFloorIconType(idx, tileMesh.userData.floorIconType ?? 0);
+            this.instancedMeshManager.setFloorIconAngle(idx, tileMesh.userData.floorIconAngle ?? 0);
           }
           this.visibleTiles.add(id);
           this.dirtyTiles.add(idx);
@@ -3127,24 +3141,7 @@ export class Player implements IPlayer {
 
     // If using instancing, update the manager
     if (this.instancedMeshManager) {
-        // Compute texture seed: only Standard style gets the texture overlay
-        const texSeed = trackStyle === 'Standard' ? Math.random() * 10 + 1 : 0;
-
-        this.instancedMeshManager.updateTile(
-            index,
-            shapeKey,
-            finalPos,
-            finalRot,
-            finalScale,
-            color,
-            bgcolor,
-            finalOpacity,
-            true, // visible
-            texSeed
-        );
         // Hide individual mesh's own geometry but allow its children (decorations) to be visible
-        // We'll use a material with visible: false instead of mesh.visible = false
-        // so that children (decorations) are still rendered
         tileMesh.material.visible = false;
     }
     
@@ -3180,8 +3177,28 @@ export class Player implements IPlayer {
         }
     }
     tileMesh.userData.floorIconType = iconTypeIdx;
+
+    // Compute floor icon angle for shader
+    const floorIconAngle = this.getFloorIconAngle(index, hasTwirl);
+    tileMesh.userData.floorIconAngle = floorIconAngle;
+
+    // Update instanced mesh with icon type and direction angle
     if (this.instancedMeshManager) {
-        this.instancedMeshManager.setFloorIconType(index, iconTypeIdx);
+        const texSeed = trackStyle === 'Standard' ? Math.random() * 10 + 1 : 0;
+        this.instancedMeshManager.updateTile(
+            index,
+            shapeKey,
+            finalPos,
+            finalRot,
+            finalScale,
+            color,
+            bgcolor,
+            finalOpacity,
+            true, // visible
+            texSeed,
+            iconTypeIdx,
+            floorIconAngle
+        );
     }
 
     this.tiles.set(id, tileMesh);

@@ -32,7 +32,7 @@ function drawFlipped(ctx: CanvasRenderingContext2D, img: HTMLImageElement, x: nu
     ctx.save();
     ctx.translate(x + w / 2, y + h / 2);
     ctx.scale(1, -1);
-    ctx.rotate(Math.PI / 2);
+    ctx.rotate(Math.PI);
     ctx.drawImage(img, -w / 2, -h / 2, w, h);
     ctx.restore();
 }

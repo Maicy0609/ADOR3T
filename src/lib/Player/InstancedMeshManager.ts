@@ -46,6 +46,9 @@ export class InstancedMeshManager {
     private useInstancedMesh: boolean = true;
     private tileTexture: Texture | null = null;
     private texScale: number = 0.6;
+    private iconAtlasTexture: Texture | null = null;
+    private iconAtlasCols: number = 8;
+    private iconSize: number = 0.44;
 
     /**
      * Set the tile texture overlay and tiling scale
@@ -88,9 +91,9 @@ export class InstancedMeshManager {
             uniforms: {
                 uTileTexture: { value: this.tileTexture },
                 uTexScale: { value: this.texScale },
-                uIconAtlas: { value: null },
-                uIconAtlasCols: { value: 8 },
-                uIconSize: { value: 0.44 }
+                uIconAtlas: { value: this.iconAtlasTexture },
+                uIconAtlasCols: { value: this.iconAtlasCols },
+                uIconSize: { value: this.iconSize }
             },
             vertexShader: instancedVert,
             fragmentShader: instancedFrag,
@@ -130,12 +133,17 @@ export class InstancedMeshManager {
             new Float32Array(maxInstances),
             1
         );
+        const iFloorIconAngle = new InstancedBufferAttribute(
+            new Float32Array(maxInstances),
+            1
+        );
 
         instancedMesh.geometry.setAttribute('iColor', iColor);
         instancedMesh.geometry.setAttribute('iBgColor', iBgColor);
         instancedMesh.geometry.setAttribute('iOpacity', iOpacity);
         instancedMesh.geometry.setAttribute('iTexSeed', iTexSeed);
         instancedMesh.geometry.setAttribute('iFloorIconType', iFloorIconType);
+        instancedMesh.geometry.setAttribute('iFloorIconAngle', iFloorIconAngle);
 
         instancedMesh.instanceMatrix.needsUpdate = true;
 
@@ -171,7 +179,8 @@ export class InstancedMeshManager {
         opacity: number = 1,
         visible: boolean = true,
         texSeed: number = 0,
-        floorIconType: number = 0
+        floorIconType: number = 0,
+        floorIconAngle: number = 0
     ): void {
         if (!this.useInstancedMesh) return;
 
@@ -259,17 +268,23 @@ export class InstancedMeshManager {
                 const iBgColor = instancedMesh.geometry.attributes.iBgColor! as InstancedBufferAttribute;
                 const iOpacity = instancedMesh.geometry.attributes.iOpacity! as InstancedBufferAttribute;
                 const iTexSeed = instancedMesh.geometry.attributes.iTexSeed! as InstancedBufferAttribute;
+                const iFloorIconType = instancedMesh.geometry.attributes.iFloorIconType! as InstancedBufferAttribute;
+                const iFloorIconAngle = instancedMesh.geometry.attributes.iFloorIconAngle! as InstancedBufferAttribute;
 
                 for (let i = count - 1; i >= insertAt; i--) {
                     iColor.setXYZ(i + 1, iColor.getX(i), iColor.getY(i), iColor.getZ(i));
                     iBgColor.setXYZ(i + 1, iBgColor.getX(i), iBgColor.getY(i), iBgColor.getZ(i));
                     iOpacity.setX(i + 1, iOpacity.getX(i));
                     iTexSeed.setX(i + 1, iTexSeed.getX(i));
+                    iFloorIconType.setX(i + 1, iFloorIconType.getX(i));
+                    iFloorIconAngle.setX(i + 1, iFloorIconAngle.getX(i));
                 }
                 iColor.needsUpdate = true;
                 iBgColor.needsUpdate = true;
                 iOpacity.needsUpdate = true;
                 iTexSeed.needsUpdate = true;
+                iFloorIconType.needsUpdate = true;
+                iFloorIconAngle.needsUpdate = true;
                 instancedMesh.instanceMatrix.needsUpdate = true;
 
                 // Update tileIndex→instanceIndex mapping for shifted instances only
@@ -328,6 +343,7 @@ export class InstancedMeshManager {
         instancedMesh.geometry.attributes.iOpacity!.setX(instanceIndex, opacity);
         instancedMesh.geometry.attributes.iTexSeed!.setX(instanceIndex, texSeed);
         instancedMesh.geometry.attributes.iFloorIconType!.setX(instanceIndex, floorIconType);
+        instancedMesh.geometry.attributes.iFloorIconAngle!.setX(instanceIndex, floorIconAngle);
 
         instancedMesh.instanceMatrix.needsUpdate = true;
         instancedMesh.geometry.attributes.iColor!.needsUpdate = true;
@@ -335,6 +351,7 @@ export class InstancedMeshManager {
         instancedMesh.geometry.attributes.iOpacity!.needsUpdate = true;
         instancedMesh.geometry.attributes.iTexSeed!.needsUpdate = true;
         instancedMesh.geometry.attributes.iFloorIconType!.needsUpdate = true;
+        instancedMesh.geometry.attributes.iFloorIconAngle!.needsUpdate = true;
     }
 
     /**
@@ -458,7 +475,22 @@ export class InstancedMeshManager {
         }
     }
 
+    public setFloorIconAngle(tileIndex: number, angle: number): void {
+        for (const shapeData of this.instancedMeshes.values()) {
+            const instanceIndex = shapeData.instances.get(tileIndex);
+            if (instanceIndex !== undefined) {
+                const attr = shapeData.instancedMesh.geometry.attributes.iFloorIconAngle!;
+                attr.setX(instanceIndex, angle);
+                attr.needsUpdate = true;
+                break;
+            }
+        }
+    }
+
     public setIconAtlas(texture: Texture, atlasCols: number, iconSize: number): void {
+        this.iconAtlasTexture = texture;
+        this.iconAtlasCols = atlasCols;
+        this.iconSize = iconSize;
         for (const shapeData of this.instancedMeshes.values()) {
             const mat = shapeData.instancedMesh.material as ShaderMaterial;
             if (mat.uniforms) {
@@ -512,6 +544,10 @@ export class InstancedMeshManager {
             new Float32Array(newMax),
             1
         );
+        const iFloorIconAngle = new InstancedBufferAttribute(
+            new Float32Array(newMax),
+            1
+        );
 
         // Copy old data
         for (let i = 0; i < oldMax; i++) {
@@ -538,6 +574,9 @@ export class InstancedMeshManager {
             iFloorIconType.setX(i,
                 oldMesh.geometry.attributes.iFloorIconType!.getX(i)
             );
+            iFloorIconAngle.setX(i,
+                oldMesh.geometry.attributes.iFloorIconAngle!.getX(i)
+            );
         }
 
         newMesh.geometry.setAttribute('iColor', iColor);
@@ -545,6 +584,7 @@ export class InstancedMeshManager {
         newMesh.geometry.setAttribute('iOpacity', iOpacity);
         newMesh.geometry.setAttribute('iTexSeed', iTexSeed);
         newMesh.geometry.setAttribute('iFloorIconType', iFloorIconType);
+        newMesh.geometry.setAttribute('iFloorIconAngle', iFloorIconAngle);
 
         // Replace old mesh
         this.scene.remove(oldMesh);
