@@ -1557,11 +1557,8 @@ export class Player implements IPlayer {
             effectiveOpacity
         );
         this.instancedMeshManager!.setTileVisibility(index, effectiveOpacity > 0.001);
-        // Sync floor icon type
-        const floorIconType = mesh.userData.floorIconType ?? 0;
-        if (floorIconType > 0) {
-            this.instancedMeshManager!.setFloorIconType(index, floorIconType);
-        }
+        // Always sync floor icon type
+        this.instancedMeshManager!.setFloorIconType(index, mesh.userData.floorIconType ?? 0);
     });
     this.dirtyTiles.clear();
   }
@@ -3168,7 +3165,7 @@ export class Player implements IPlayer {
         }
     }
     tileMesh.userData.floorIconType = iconTypeIdx;
-    if (iconTypeIdx > 0 && this.instancedMeshManager) {
+    if (this.instancedMeshManager) {
         this.instancedMeshManager.setFloorIconType(index, iconTypeIdx);
     }
 

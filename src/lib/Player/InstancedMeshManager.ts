@@ -170,7 +170,8 @@ export class InstancedMeshManager {
         bgColor: string,
         opacity: number = 1,
         visible: boolean = true,
-        texSeed: number = 0
+        texSeed: number = 0,
+        floorIconType: number = 0
     ): void {
         if (!this.useInstancedMesh) return;
 
@@ -326,7 +327,7 @@ export class InstancedMeshManager {
         );
         instancedMesh.geometry.attributes.iOpacity!.setX(instanceIndex, opacity);
         instancedMesh.geometry.attributes.iTexSeed!.setX(instanceIndex, texSeed);
-        instancedMesh.geometry.attributes.iFloorIconType!.setX(instanceIndex, 0);
+        instancedMesh.geometry.attributes.iFloorIconType!.setX(instanceIndex, floorIconType);
 
         instancedMesh.instanceMatrix.needsUpdate = true;
         instancedMesh.geometry.attributes.iColor!.needsUpdate = true;
