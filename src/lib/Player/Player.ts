@@ -1540,7 +1540,16 @@ export class Player implements IPlayer {
   private syncInstancedTiles(): void {
     if (!this.instancedMeshManager) return;
     // Only sync tiles that have actually changed this frame
-    if (this.dirtyTiles.size === 0) return;
+    if (this.dirtyTiles.size === 0) {
+      // Still ensure floor icon types are set for ALL tiles
+      for (const [id, mesh] of this.tiles) {
+        const idx = parseInt(id, 10);
+        if (!isNaN(idx)) {
+          this.instancedMeshManager.setFloorIconType(idx, mesh.userData.floorIconType ?? 0);
+        }
+      }
+      return;
+    }
 
     this.dirtyTiles.forEach(index => {
         const id = index.toString();
@@ -2950,6 +2959,7 @@ export class Player implements IPlayer {
           } else {
             this.scene.add(tileMesh);
             this.instancedMeshManager.setTileVisibility(idx, true);
+            this.instancedMeshManager.setFloorIconType(idx, tileMesh.userData.floorIconType ?? 0);
           }
           this.visibleTiles.add(id);
           this.dirtyTiles.add(idx);
