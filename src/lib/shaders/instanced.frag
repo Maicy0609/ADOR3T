@@ -27,18 +27,13 @@ void main() {
         finalColor *= texColor.rgb;
     }
 
-    // Floor icon overlay — circular distance from tile center in world space
+    // Floor icon overlay — tile-center-relative UV, no area restriction
     if (vFloorIconType > 0.5 && uIconSize > 0.0) {
-        vec2 offset = vWorldPosition.xy - vTileCenter;
-        float dist = length(offset);
-        float radius = uIconSize * 0.5;
-        if (dist < radius) {
-            vec2 iconUv = offset / uIconSize + 0.5;
-            iconUv.x = iconUv.x / uIconAtlasCols + (vFloorIconType - 1.0) / uIconAtlasCols;
-            vec4 iconColor = texture2D(uIconAtlas, iconUv);
-            if (iconColor.a > 0.1) {
-                finalColor = mix(finalColor, iconColor.rgb, iconColor.a);
-            }
+        vec2 iconUv = (vWorldPosition.xy - vTileCenter) / uIconSize + 0.5;
+        iconUv.x = iconUv.x / uIconAtlasCols + (vFloorIconType - 1.0) / uIconAtlasCols;
+        vec4 iconColor = texture2D(uIconAtlas, iconUv);
+        if (iconColor.a > 0.1) {
+            finalColor = mix(finalColor, iconColor.rgb, iconColor.a);
         }
     }
 
