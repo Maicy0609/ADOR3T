@@ -23,6 +23,8 @@ function loadFlipped(key: string, url: string): Texture {
     tex.wrapT = RepeatWrapping;
     tex.repeat.y = -1;
     tex.offset.y = 1;
+    tex.center.set(0.5, 0.5);
+    tex.rotation = Math.PI / 2;
     texCache.set(key, tex);
     return tex;
 }
