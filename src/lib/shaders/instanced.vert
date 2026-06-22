@@ -11,7 +11,7 @@ varying float vOpacity;
 varying vec3 vWorldPosition;
 varying float vTexSeed;
 varying float vFloorIconType;
-varying vec3 vTileCenter;
+varying vec2 vTileCenter;
 
 void main() {
     vColor = color;
@@ -23,7 +23,7 @@ void main() {
 
     vec4 worldPos = modelMatrix * instanceMatrix * vec4(position, 1.0);
     vWorldPosition = worldPos.xyz;
-    vTileCenter = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+    vTileCenter = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xy;
 
     gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0);
 }

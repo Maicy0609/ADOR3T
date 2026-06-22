@@ -11,7 +11,7 @@ varying float vOpacity;
 varying vec3 vWorldPosition;
 varying float vTexSeed;
 varying float vFloorIconType;
-varying vec3 vTileCenter;
+varying vec2 vTileCenter;
 
 void main() {
     vec3 finalColor = mix(vInstanceBgColor, vInstanceColor, vColor.r);
@@ -27,12 +27,13 @@ void main() {
         finalColor *= texColor.rgb;
     }
 
-    // Floor icon overlay
+    // Floor icon overlay — circular distance from tile center in world space
     if (vFloorIconType > 0.5 && uIconSize > 0.0) {
-        vec2 localPos = vWorldPosition.xy - vTileCenter.xy;
-        float halfSize = uIconSize * 0.5;
-        if (abs(localPos.x) < halfSize && abs(localPos.y) < halfSize) {
-            vec2 iconUv = localPos / uIconSize + 0.5;
+        vec2 offset = vWorldPosition.xy - vTileCenter;
+        float dist = length(offset);
+        float radius = uIconSize * 0.5;
+        if (dist < radius) {
+            vec2 iconUv = offset / uIconSize + 0.5;
             iconUv.x = iconUv.x / uIconAtlasCols + (vFloorIconType - 1.0) / uIconAtlasCols;
             vec4 iconColor = texture2D(uIconAtlas, iconUv);
             if (iconColor.a > 0.1) {
