@@ -28,7 +28,7 @@ void main() {
     }
 
     // Floor icon overlay
-    if (vFloorIconType > 0.5) {
+    if (vFloorIconType > 0.5 && uIconSize > 0.0) {
         vec2 localPos = vWorldPosition.xy - vTileCenter.xy;
         float halfSize = uIconSize * 0.5;
         if (abs(localPos.x) < halfSize && abs(localPos.y) < halfSize) {

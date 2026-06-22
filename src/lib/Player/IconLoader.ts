@@ -1,4 +1,4 @@
-import { TextureLoader, Texture, SRGBColorSpace, RepeatWrapping, CanvasTexture, NearestFilter, SpriteMaterial, Sprite } from 'three';
+import { TextureLoader, Texture, SRGBColorSpace, RepeatWrapping, CanvasTexture, LinearFilter, SpriteMaterial, Sprite } from 'three';
 
 import endUrl from '@/assets/events/End.json';
 import speedPlusUrl from '@/assets/events/Speed+.json';
@@ -14,7 +14,7 @@ export const ICON_TYPES: IconType[] = [
     'TwirlB1', 'TwirlB-1', 'TwirlR1', 'TwirlR-1',
 ];
 
-export const ICON_ATLAS_SIZE = 64;
+export const ICON_ATLAS_SIZE = 128;
 const ATLAS_COLS = 8;
 
 let _atlasTexture: Texture | null = null;
@@ -76,8 +76,8 @@ export async function buildIconAtlas(): Promise<Texture> {
 
     const tex = new CanvasTexture(canvas);
     tex.colorSpace = SRGBColorSpace;
-    tex.magFilter = NearestFilter;
-    tex.minFilter = NearestFilter;
+    tex.magFilter = LinearFilter;
+    tex.minFilter = LinearFilter;
     _atlasTexture = tex;
     return tex;
 }

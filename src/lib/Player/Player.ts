@@ -3168,6 +3168,9 @@ export class Player implements IPlayer {
         }
     }
     tileMesh.userData.floorIconType = iconTypeIdx;
+    if (iconTypeIdx > 0 && this.instancedMeshManager) {
+        this.instancedMeshManager.setFloorIconType(index, iconTypeIdx);
+    }
 
     this.tiles.set(id, tileMesh);
 
