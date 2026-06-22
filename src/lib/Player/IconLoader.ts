@@ -1,4 +1,4 @@
-import { TextureLoader, Texture, SRGBColorSpace, RepeatWrapping, SpriteMaterial, Sprite } from 'three';
+import { TextureLoader, Texture, SRGBColorSpace, RepeatWrapping, CanvasTexture, NearestFilter, SpriteMaterial, Sprite } from 'three';
 
 import endUrl from '@/assets/events/End.json';
 import speedPlusUrl from '@/assets/events/Speed+.json';
@@ -7,51 +7,87 @@ import doubleSnailUrl from '@/assets/events/DoubleSnail.json';
 import twirlB1Url from '@/assets/events/TwirlB1.json';
 import twirlR1Url from '@/assets/events/TwirlR1.json';
 
-const loader = new TextureLoader();
-
-const texCache = new Map<string, Texture>();
-
-function load(key: string, url: string): Texture {
-    const tex = loader.load(url);
-    tex.colorSpace = SRGBColorSpace;
-    texCache.set(key, tex);
-    return tex;
-}
-
-function loadFlipped(key: string, url: string): Texture {
-    const tex = loader.load(url);
-    tex.colorSpace = SRGBColorSpace;
-    tex.wrapT = RepeatWrapping;
-    tex.repeat.y = -1;
-    tex.offset.y = 1;
-    tex.center.set(0.5, 0.5);
-    tex.rotation = Math.PI / 2;
-    texCache.set(key, tex);
-    return tex;
-}
-
-const _e = () => load('End', endUrl);
-const _sp = () => load('Speed+', speedPlusUrl);
-const _sm = () => load('Speed-', speedMinusUrl);
-const _ds = () => load('DoubleSnail', doubleSnailUrl);
-const _tb1 = () => load('TwirlB1', twirlB1Url);
-const _tb1n = () => loadFlipped('TwirlB-1', twirlB1Url);
-const _tr1 = () => load('TwirlR1', twirlR1Url);
-const _tr1n = () => loadFlipped('TwirlR-1', twirlR1Url);
-
 export type IconType = 'End' | 'Speed+' | 'Speed-' | 'DoubleSnail' | 'TwirlB1' | 'TwirlB-1' | 'TwirlR1' | 'TwirlR-1';
 
-export function getIconTexture(type: IconType): Texture {
-    switch (type) {
-        case 'End': return _e();
-        case 'Speed+': return _sp();
-        case 'Speed-': return _sm();
-        case 'DoubleSnail': return _ds();
-        case 'TwirlB1': return _tb1();
-        case 'TwirlB-1': return _tb1n();
-        case 'TwirlR1': return _tr1();
-        case 'TwirlR-1': return _tr1n();
+export const ICON_TYPES: IconType[] = [
+    'End', 'Speed+', 'Speed-', 'DoubleSnail',
+    'TwirlB1', 'TwirlB-1', 'TwirlR1', 'TwirlR-1',
+];
+
+export const ICON_ATLAS_SIZE = 64;
+const ATLAS_COLS = 8;
+
+let _atlasTexture: Texture | null = null;
+
+function loadImage(url: string): Promise<HTMLImageElement> {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = url;
+    });
+}
+
+function drawFlipped(ctx: CanvasRenderingContext2D, img: HTMLImageElement, x: number, y: number, w: number, h: number): void {
+    ctx.save();
+    ctx.translate(x + w / 2, y + h / 2);
+    ctx.scale(1, -1);
+    ctx.rotate(Math.PI / 2);
+    ctx.drawImage(img, -w / 2, -h / 2, w, h);
+    ctx.restore();
+}
+
+export async function buildIconAtlas(): Promise<Texture> {
+    if (_atlasTexture) return _atlasTexture;
+
+    const urls: [IconType, string, boolean][] = [
+        ['End', endUrl, false],
+        ['Speed+', speedPlusUrl, false],
+        ['Speed-', speedMinusUrl, false],
+        ['DoubleSnail', doubleSnailUrl, false],
+        ['TwirlB1', twirlB1Url, false],
+        ['TwirlB-1', twirlB1Url, true],
+        ['TwirlR1', twirlR1Url, false],
+        ['TwirlR-1', twirlR1Url, true],
+    ];
+
+    const images = await Promise.all(urls.map(([, url]) => loadImage(url)));
+
+    const S = ICON_ATLAS_SIZE;
+    const canvas = document.createElement('canvas');
+    canvas.width = S * ATLAS_COLS;
+    canvas.height = S;
+    const ctx = canvas.getContext('2d')!;
+
+    for (let i = 0; i < urls.length; i++) {
+        const [, , flipped] = urls[i];
+        const img = images[i];
+        const scale = Math.min(S / img.width, S / img.height) * 0.9;
+        const w = img.width * scale;
+        const h = img.height * scale;
+        const x = i * S + (S - w) / 2;
+        const y = (S - h) / 2;
+        if (flipped) {
+            drawFlipped(ctx, img, x, y, w, h);
+        } else {
+            ctx.drawImage(img, x, y, w, h);
+        }
     }
+
+    const tex = new CanvasTexture(canvas);
+    tex.colorSpace = SRGBColorSpace;
+    tex.magFilter = NearestFilter;
+    tex.minFilter = NearestFilter;
+    _atlasTexture = tex;
+    return tex;
+}
+
+export function getIconAtlas(): Texture | null {
+    return _atlasTexture;
+}
+
+export function getIconTypeIndex(type: IconType): number {
+    return ICON_TYPES.indexOf(type) + 1;
 }
 
 export function getTwirlTexture(angle: number, dir: number): IconType {
@@ -77,10 +113,46 @@ export function getIconTextureForCustomFloor(trackIcon: string): IconType | null
     }
 }
 
-export interface IconSpriteOptions {
-    texture: Texture;
-    opacity?: number;
-    scale?: number;
+// Legacy sprite-based icon loader (kept for decorations)
+const _legacyLoader = new TextureLoader();
+
+function loadLegacy(key: string, url: string): Texture {
+    const tex = _legacyLoader.load(url);
+    tex.colorSpace = SRGBColorSpace;
+    return tex;
+}
+
+function loadFlippedLegacy(url: string): Texture {
+    const tex = _legacyLoader.load(url);
+    tex.colorSpace = SRGBColorSpace;
+    tex.wrapT = RepeatWrapping;
+    tex.repeat.y = -1;
+    tex.offset.y = 1;
+    tex.center.set(0.5, 0.5);
+    tex.rotation = Math.PI / 2;
+    return tex;
+}
+
+const _e = () => loadLegacy('End', endUrl);
+const _sp = () => loadLegacy('Speed+', speedPlusUrl);
+const _sm = () => loadLegacy('Speed-', speedMinusUrl);
+const _ds = () => loadLegacy('DoubleSnail', doubleSnailUrl);
+const _tb1 = () => loadLegacy('TwirlB1', twirlB1Url);
+const _tb1n = () => loadFlippedLegacy(twirlB1Url);
+const _tr1 = () => loadLegacy('TwirlR1', twirlR1Url);
+const _tr1n = () => loadFlippedLegacy(twirlR1Url);
+
+export function getIconTexture(type: IconType): Texture {
+    switch (type) {
+        case 'End': return _e();
+        case 'Speed+': return _sp();
+        case 'Speed-': return _sm();
+        case 'DoubleSnail': return _ds();
+        case 'TwirlB1': return _tb1();
+        case 'TwirlB-1': return _tb1n();
+        case 'TwirlR1': return _tr1();
+        case 'TwirlR-1': return _tr1n();
+    }
 }
 
 export function createIconSprite(tex: Texture, opacity = 1, size = 0.22): Sprite {

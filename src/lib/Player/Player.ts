@@ -18,7 +18,7 @@ import { PositionTrackManager } from './PositionTrackManager';
 import { InstancedMeshManager } from './InstancedMeshManager';
 import { TimelineManager } from './TimelineManager';
 import { OverlayHUD } from './OverlayHUD';
-import { getIconTexture, getTwirlTexture, getSetSpeedTexture, createIconSprite } from './IconLoader';
+import { getIconTypeIndex, getTwirlTexture, getSetSpeedTexture, IconType, buildIconAtlas, ICON_ATLAS_SIZE } from './IconLoader';
 import Stats from 'three/examples/jsm/libs/stats.module.js';
 import type { Bloom, Flash, RecolorTrack } from 'adofai/event';
 import { Level } from 'adofai';
@@ -256,6 +256,13 @@ export class Player implements IPlayer {
 
     // Load tile texture overlay (used for Standard track style)
     this.loadTileTexture();
+
+    // Initialize icon atlas for UV-based floor icons
+    buildIconAtlas().then(atlas => {
+        if (this.instancedMeshManager) {
+            this.instancedMeshManager.setIconAtlas(atlas, 8, 0.44);
+        }
+    }).catch(e => console.warn('[Player] Icon atlas build failed:', e));
     
     // Set background color from level settings
     const bgColor = this.levelData.settings?.backgroundColor || '000000';
@@ -1550,6 +1557,11 @@ export class Player implements IPlayer {
             effectiveOpacity
         );
         this.instancedMeshManager!.setTileVisibility(index, effectiveOpacity > 0.001);
+        // Sync floor icon type
+        const floorIconType = mesh.userData.floorIconType ?? 0;
+        if (floorIconType > 0) {
+            this.instancedMeshManager!.setFloorIconType(index, floorIconType);
+        }
     });
     this.dirtyTiles.clear();
   }
@@ -3138,48 +3150,25 @@ export class Player implements IPlayer {
         });
     }
 
-    // Last tile → End icon
+    // Determine floor icon type (for UV-based rendering)
+    let iconTypeIdx = 0;
     const tileCount = this.levelData.tiles?.length ?? 0;
     if (index === tileCount - 1) {
-        const tex = getIconTexture('End');
-        const sprite = createIconSprite(tex, initialOpacity, 0.36);
-        sprite.position.set(0, 0, decoZ);
-        sprite.userData.baseRotation = 0;
-        tileMesh.add(sprite);
+        iconTypeIdx = getIconTypeIndex('End');
     } else if (hasTwirl) {
         const tileAngle = this.levelData.tiles?.[index]?.angle ?? 180;
         const dir = this.tileIsCW[index] ? 1 : -1;
-        const texType = getTwirlTexture(tileAngle, dir);
-        const tex = getIconTexture(texType);
-        const sprite = createIconSprite(tex, initialOpacity, 0.44);
-        sprite.position.set(0, 0, decoZ);
-        const nextTile = this.levelData.tiles?.[index + 1];
-        if (nextTile) {
-            const pivot = this.levelData.tiles![index];
-            const exitAngle = Math.atan2(nextTile.position[1] - pivot.position[1], nextTile.position[0] - pivot.position[0]);
-            const r = dir === 1
-                ? exitAngle - Math.PI / 3
-                : exitAngle - Math.PI / 6;
-            (sprite.material as SpriteMaterial).rotation = r;
-            sprite.userData.baseRotation = r;
-        }
-        tileMesh.add(sprite);
+        iconTypeIdx = getIconTypeIndex(getTwirlTexture(tileAngle, dir));
     } else if (hasSetSpeed) {
         const currentBPM = this.tileBPM[index];
         const prevBPM = index > 0 ? this.tileBPM[index - 1] : (this.levelData.settings.bpm || 100);
         const ratio = currentBPM / prevBPM;
         if (ratio > 1.05 || ratio < 0.95) {
-            const texType = getSetSpeedTexture(ratio);
-            const tex = getIconTexture(texType);
-            const sprite = createIconSprite(tex, initialOpacity, 0.44);
-            sprite.position.set(0, 0, decoZ);
-            sprite.userData.baseRotation = 0;
-            tileMesh.add(sprite);
+            iconTypeIdx = getIconTypeIndex(getSetSpeedTexture(ratio));
         }
     }
+    tileMesh.userData.floorIconType = iconTypeIdx;
 
-    this.updateTileChildSpriteRotations(tileMesh, this.camera.rotation.z);
-    
     this.tiles.set(id, tileMesh);
 
     // Register tile initial state with MoveTrack manager

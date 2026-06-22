@@ -87,7 +87,10 @@ export class InstancedMeshManager {
         const material = new ShaderMaterial({
             uniforms: {
                 uTileTexture: { value: this.tileTexture },
-                uTexScale: { value: this.texScale }
+                uTexScale: { value: this.texScale },
+                uIconAtlas: { value: null },
+                uIconAtlasCols: { value: 8 },
+                uIconSize: { value: 0.44 }
             },
             vertexShader: instancedVert,
             fragmentShader: instancedFrag,
@@ -123,11 +126,16 @@ export class InstancedMeshManager {
             new Float32Array(maxInstances),
             1
         );
+        const iFloorIconType = new InstancedBufferAttribute(
+            new Float32Array(maxInstances),
+            1
+        );
 
         instancedMesh.geometry.setAttribute('iColor', iColor);
         instancedMesh.geometry.setAttribute('iBgColor', iBgColor);
         instancedMesh.geometry.setAttribute('iOpacity', iOpacity);
         instancedMesh.geometry.setAttribute('iTexSeed', iTexSeed);
+        instancedMesh.geometry.setAttribute('iFloorIconType', iFloorIconType);
 
         instancedMesh.instanceMatrix.needsUpdate = true;
 
@@ -318,12 +326,14 @@ export class InstancedMeshManager {
         );
         instancedMesh.geometry.attributes.iOpacity!.setX(instanceIndex, opacity);
         instancedMesh.geometry.attributes.iTexSeed!.setX(instanceIndex, texSeed);
+        instancedMesh.geometry.attributes.iFloorIconType!.setX(instanceIndex, 0);
 
         instancedMesh.instanceMatrix.needsUpdate = true;
         instancedMesh.geometry.attributes.iColor!.needsUpdate = true;
         instancedMesh.geometry.attributes.iBgColor!.needsUpdate = true;
         instancedMesh.geometry.attributes.iOpacity!.needsUpdate = true;
         instancedMesh.geometry.attributes.iTexSeed!.needsUpdate = true;
+        instancedMesh.geometry.attributes.iFloorIconType!.needsUpdate = true;
     }
 
     /**
@@ -435,6 +445,29 @@ export class InstancedMeshManager {
         }
     }
 
+    public setFloorIconType(tileIndex: number, iconType: number): void {
+        for (const shapeData of this.instancedMeshes.values()) {
+            const instanceIndex = shapeData.instances.get(tileIndex);
+            if (instanceIndex !== undefined) {
+                const attr = shapeData.instancedMesh.geometry.attributes.iFloorIconType!;
+                attr.setX(instanceIndex, iconType);
+                attr.needsUpdate = true;
+                break;
+            }
+        }
+    }
+
+    public setIconAtlas(texture: Texture, atlasCols: number, iconSize: number): void {
+        for (const shapeData of this.instancedMeshes.values()) {
+            const mat = shapeData.instancedMesh.material as ShaderMaterial;
+            if (mat.uniforms) {
+                mat.uniforms.uIconAtlas.value = texture;
+                mat.uniforms.uIconAtlasCols.value = atlasCols;
+                mat.uniforms.uIconSize.value = iconSize;
+            }
+        }
+    }
+
     /**
      * Expand an instanced mesh to accommodate more instances
      */
@@ -474,6 +507,10 @@ export class InstancedMeshManager {
             new Float32Array(newMax),
             1
         );
+        const iFloorIconType = new InstancedBufferAttribute(
+            new Float32Array(newMax),
+            1
+        );
 
         // Copy old data
         for (let i = 0; i < oldMax; i++) {
@@ -497,12 +534,16 @@ export class InstancedMeshManager {
             iTexSeed.setX(i,
                 oldMesh.geometry.attributes.iTexSeed!.getX(i)
             );
+            iFloorIconType.setX(i,
+                oldMesh.geometry.attributes.iFloorIconType!.getX(i)
+            );
         }
 
         newMesh.geometry.setAttribute('iColor', iColor);
         newMesh.geometry.setAttribute('iBgColor', iBgColor);
         newMesh.geometry.setAttribute('iOpacity', iOpacity);
         newMesh.geometry.setAttribute('iTexSeed', iTexSeed);
+        newMesh.geometry.setAttribute('iFloorIconType', iFloorIconType);
 
         // Replace old mesh
         this.scene.remove(oldMesh);
