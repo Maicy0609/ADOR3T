@@ -2487,6 +2487,11 @@ export class Player implements IPlayer {
                     tileMesh.position, tileMesh.rotation as Euler, tileMesh.scale,
                     rendered.color, rendered.bgcolor, rendered.opacity, true, texSeed
                 );
+                // Restore floor icon type (updateTile resets it to 0)
+                const fType = tileMesh.userData.floorIconType ?? 0;
+                if (fType > 0) {
+                    this.instancedMeshManager.setFloorIconType(i, fType);
+                }
             }
         }
     }
