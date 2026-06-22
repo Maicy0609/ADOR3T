@@ -3087,8 +3087,8 @@ export class Player implements IPlayer {
         material.transparent = finalOpacity < 0.999;
       }
     } else {
-      // Fallback to original position calculation - use stable Z
-      const stableZ = (1000 - (index % 1000)) * 0.0001;
+      // Fallback to original position calculation - use stable Z for depth ordering
+      const stableZ = (12 - index) * 0.01;
       tileMesh.position.set(x, y, stableZ);
       finalPos.set(x, y, stableZ);
       const colorOpacity = tileConfig?.trackOpacity ?? 1;

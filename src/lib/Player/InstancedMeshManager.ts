@@ -95,10 +95,9 @@ export class InstancedMeshManager {
             side: DoubleSide,
             transparent: true,
             depthTest: true,
-            // depthWrite: false — prevents transparent tiles from occluding tiles behind them.
-            // Tiles are sorted back-to-front via renderOrder, so the painter's algorithm is correct
-            // even without depth writes.
-            depthWrite: false
+            // Tiles are ordered by z-position (stableZ) for depth testing.
+            // Transparent tiles with opacity=0 are hidden via scale=(0,0,0) in setTileVisibility.
+            depthWrite: true
         });
 
         const instancedMesh = new InstancedMesh(geometry, material, maxInstances);
