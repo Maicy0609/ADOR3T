@@ -1,12 +1,10 @@
-import { TextureLoader, Texture, SRGBColorSpace, SpriteMaterial, Sprite } from 'three';
+import { TextureLoader, Texture, SRGBColorSpace, RepeatWrapping, SpriteMaterial, Sprite } from 'three';
 
 import endUrl from '@/assets/events/End.json';
 import speedPlusUrl from '@/assets/events/Speed+.json';
 import speedMinusUrl from '@/assets/events/Speed-.json';
 import twirlB1Url from '@/assets/events/TwirlB1.json';
-import twirlB1NegUrl from '@/assets/events/TwirlB-1.json';
 import twirlR1Url from '@/assets/events/TwirlR1.json';
-import twirlR1NegUrl from '@/assets/events/TwirlR-1.json';
 
 const loader = new TextureLoader();
 
@@ -19,13 +17,23 @@ function load(key: string, url: string): Texture {
     return tex;
 }
 
+function loadFlipped(key: string, url: string): Texture {
+    const tex = loader.load(url);
+    tex.colorSpace = SRGBColorSpace;
+    tex.wrapT = RepeatWrapping;
+    tex.repeat.y = -1;
+    tex.offset.y = 1;
+    texCache.set(key, tex);
+    return tex;
+}
+
 const _e = () => load('End', endUrl);
 const _sp = () => load('Speed+', speedPlusUrl);
 const _sm = () => load('Speed-', speedMinusUrl);
 const _tb1 = () => load('TwirlB1', twirlB1Url);
-const _tb1n = () => load('TwirlB-1', twirlB1NegUrl);
+const _tb1n = () => loadFlipped('TwirlB-1', twirlB1Url);
 const _tr1 = () => load('TwirlR1', twirlR1Url);
-const _tr1n = () => load('TwirlR-1', twirlR1NegUrl);
+const _tr1n = () => loadFlipped('TwirlR-1', twirlR1Url);
 
 export type IconType = 'End' | 'Speed+' | 'Speed-' | 'TwirlB1' | 'TwirlB-1' | 'TwirlR1' | 'TwirlR-1';
 
