@@ -27,9 +27,9 @@ void main() {
         finalColor *= texColor.rgb;
     }
 
-    // Floor icon overlay — tile-center-relative UV, no area restriction
+    // Floor icon overlay — tile-center-relative UV
     if (vFloorIconType > 0.5 && uIconSize > 0.0) {
-        vec2 iconUv = (vWorldPosition.xy - vTileCenter) / uIconSize + 0.5;
+        vec2 iconUv = clamp((vWorldPosition.xy - vTileCenter) / uIconSize + 0.5, 0.0, 1.0);
         iconUv.x = iconUv.x / uIconAtlasCols + (vFloorIconType - 1.0) / uIconAtlasCols;
         vec4 iconColor = texture2D(uIconAtlas, iconUv);
         if (iconColor.a > 0.1) {
