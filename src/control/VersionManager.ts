@@ -1,4 +1,4 @@
 export const version = {
   label: "Version:",
-  tag: "re_2.0.0",
+  tag: "re_2.1.0",
 }
