@@ -1,5 +1,7 @@
 # Re_ADOJAS
 
+感谢Claude写的github actions构建脚本~
+
 一个轻量级的 ADOFAI（A Dance of Fire and Ice）谱面播放器，支持多平台运行。
 
 ## 技术栈
