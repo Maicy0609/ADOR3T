@@ -44,13 +44,21 @@ export class MoveTrackManager {
         const playLabel = `[MoveTrackManager][Play#${this.debugPlayId}]`;
         const entity = `tile:${index}`;
 
-        if (!this.timelineManager.hasTimeline(entity, 'positionX')) {
-            debugLog(playLabel, `No MoveTrack timeline for tile ${index}, skipping`);
-            return;
+        // Apply base state directly instead of sampling timeline at time 0.
+        // Timeline at time 0 has appear animation initial state (invisible),
+        // but tiles should be fully visible in preview mode at load time.
+        const baseX = index < this.basePositions.length ? this.basePositions[index].x : 0;
+        const baseY = index < this.basePositions.length ? this.basePositions[index].y : 0;
+        const baseRot = index < this.baseRotations.length ? this.baseRotations[index] : 0;
+        tileMesh.position.x = baseX;
+        tileMesh.position.y = baseY;
+        tileMesh.rotation.z = baseRot;
+        tileMesh.scale.set(1, 1, 1);
+        tileMesh.userData.opacity = 1;
+        if (tileMesh.material) {
+            (tileMesh.material as any).opacity = 1;
+            (tileMesh.material as any).transparent = false;
         }
-
-        debugLog(playLabel, `Applying MoveTrack to tile ${index} at t=${this.currentTime.toFixed(3)}`);
-        this.timelineManager.applyToTileMesh(index, tileMesh, this.currentTime);
 
         if (this.tileTransformChanged) {
             this.tileTransformChanged(
@@ -58,7 +66,7 @@ export class MoveTrackManager {
                 tileMesh.position,
                 tileMesh.rotation as Euler,
                 tileMesh.scale,
-                tileMesh.userData.opacity ?? 1
+                1,
             );
         }
     }
@@ -140,7 +148,16 @@ export class MoveTrackManager {
         for (const [tileId, mesh] of tiles) {
             const tileIdx = parseInt(tileId, 10);
             if (isNaN(tileIdx)) continue;
-            this.timelineManager.applyToTileMesh(tileIdx, mesh, targetTime);
+            const dirty = this.timelineManager.applyToTileMesh(tileIdx, mesh, targetTime);
+            if (dirty && this.tileTransformChanged) {
+                this.tileTransformChanged(
+                    tileIdx,
+                    mesh.position,
+                    mesh.rotation as Euler,
+                    mesh.scale,
+                    mesh.userData.opacity ?? 1
+                );
+            }
         }
     }
 

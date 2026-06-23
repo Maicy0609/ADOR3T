@@ -212,7 +212,7 @@ const polygonToMesh = (
     }
 };
 
-// ========== 创建 Gems 样式网格（修复版本）==========
+// ========== 创建 Gems 样式网格 ==========
 const createGemsMesh = (
     startAngle: number,
     endAngle: number,
@@ -224,131 +224,95 @@ const createGemsMesh = (
     const faces: number[] = [];
     const colors: number[] = [];
 
-    const blackColor: Color = { r: 0, g: 0, b: 0 };
-    const whiteColor: Color = { r: 1, g: 1, b: 1 };
-
-    const hexRadius = width;
-    const hexOutlineRadius = hexRadius + outline;
-    const hexInnerRadius = hexRadius - outline;
-
-    // 步骤 1：生成外层六边形顶点（黑色描边）
-    const outerHexStart = vertices.length / 3;
-    for (let i = 0; i < 6; i++) {
-        const angle = (Math.PI / 3) * i;
-        const x = Math.cos(angle) * hexOutlineRadius;
-        const y = Math.sin(angle) * hexOutlineRadius;
-        vertices.push(x, y, 0);
-        colors.push(blackColor.r, blackColor.g, blackColor.b);
-    }
-
-    // 步骤 2：生成内层六边形顶点（黑色描边）
-    const blackInnerStart = vertices.length / 3;
-    for (let i = 0; i < 6; i++) {
-        const angle = (Math.PI / 3) * i;
-        const x = Math.cos(angle) * hexRadius;
-        const y = Math.sin(angle) * hexRadius;
-        vertices.push(x, y, 0);
-        colors.push(blackColor.r, blackColor.g, blackColor.b);
-    }
-
-    // 步骤 3：生成最内层六边形顶点（白色填充）
-    const whiteInnerStart = vertices.length / 3;
-    for (let i = 0; i < 6; i++) {
-        const angle = (Math.PI / 3) * i;
-        const x = Math.cos(angle) * hexInnerRadius;
-        const y = Math.sin(angle) * hexInnerRadius;
-        vertices.push(x, y, 0);
-        colors.push(whiteColor.r, whiteColor.g, whiteColor.b);
-    }
-
-    // 步骤 4：构建外层边框（外六边形 → 内黑六边形）
-    for (let i = 0; i < 6; i++) {
-        const next = (i + 1) % 6;
-        // 两个三角形组成一个四边形面
-        faces.push(outerHexStart + i, blackInnerStart + i, blackInnerStart + next);
-        faces.push(outerHexStart + i, blackInnerStart + next, outerHexStart + next);
-    }
-
-    // 步骤 5：构建内部边框（内黑六边形 → 内白六边形）
-    for (let i = 0; i < 6; i++) {
-        const next = (i + 1) % 6;
-        // 两个三角形组成一个四边形面
-        faces.push(blackInnerStart + i, whiteInnerStart + i, whiteInnerStart + next);
-        faces.push(blackInnerStart + i, whiteInnerStart + next, blackInnerStart + next);
-    }
-
-    // 步骤 6：白色填充中心六边形
-    for (let i = 1; i < 5; i++) {
-        faces.push(whiteInnerStart, whiteInnerStart + i, whiteInnerStart + i + 1);
-    }
-
-    // 步骤 7：添加端盖（两个相对的六边形顶点处）
     const m11 = Math.cos((startAngle / 180) * Math.PI);
     const m12 = Math.sin((startAngle / 180) * Math.PI);
     const m21 = Math.cos((endAngle / 180) * Math.PI);
     const m22 = Math.sin((endAngle / 180) * Math.PI);
 
-    // 端盖外层（黑色）
-    const capOuterStart = vertices.length / 3;
-    // 起始端盖
-    vertices.push(
-        length * m11 + width * m12, length * m12 - width * m11, 0,
-        length * m11 - width * m12, length * m12 + width * m11, 0,
-        -width * m12, width * m11, 0,
-        width * m12, -width * m11, 0
-    );
-    for (let i = 0; i < 4; i++) {
-        colors.push(blackColor.r, blackColor.g, blackColor.b);
-    }
-    // 结束端盖
-    vertices.push(
-        length * m21 + width * m22, length * m22 - width * m21, 0,
-        length * m21 - width * m22, length * m22 + width * m21, 0,
-        -width * m22, width * m21, 0,
-        width * m22, -width * m21, 0
-    );
-    for (let i = 0; i < 4; i++) {
-        colors.push(blackColor.r, blackColor.g, blackColor.b);
-    }
-    
-    // 起始端盖面
-    faces.push(capOuterStart, capOuterStart + 1, capOuterStart + 2);
-    faces.push(capOuterStart + 2, capOuterStart + 3, capOuterStart);
-    // 结束端盖面
-    faces.push(capOuterStart + 4, capOuterStart + 5, capOuterStart + 6);
-    faces.push(capOuterStart + 6, capOuterStart + 7, capOuterStart + 4);
+    const blackColor: Color = { r: 0, g: 0, b: 0 };
+    const whiteColor: Color = { r: 1, g: 1, b: 1 };
 
-    // 端盖内层（白色）
-    const capInnerStart = vertices.length / 3;
-    const innerLength = length - outline;
-    const innerWidth = width - outline;
-    // 起始端盖
-    vertices.push(
-        innerLength * m11 + innerWidth * m12, innerLength * m12 - innerWidth * m11, 0,
-        innerLength * m11 - innerWidth * m12, innerLength * m12 + innerWidth * m11, 0,
-        -innerWidth * m12, innerWidth * m11, 0,
-        innerWidth * m12, -innerWidth * m11, 0
-    );
-    for (let i = 0; i < 4; i++) {
-        colors.push(whiteColor.r, whiteColor.g, whiteColor.b);
-    }
-    // 结束端盖
-    vertices.push(
-        innerLength * m21 + innerWidth * m22, innerLength * m22 - innerWidth * m21, 0,
-        innerLength * m21 - innerWidth * m22, innerLength * m22 + innerWidth * m21, 0,
-        -innerWidth * m22, innerWidth * m21, 0,
-        innerWidth * m22, -innerWidth * m21, 0
-    );
-    for (let i = 0; i < 4; i++) {
-        colors.push(whiteColor.r, whiteColor.g, whiteColor.b);
+    const hexRadius = width;
+    const hexOutlineRadius = hexRadius + outline;
+
+    // 外六边形（黑色描边）
+    {
+        const count = vertices.length / 3;
+        for (let i = 0; i < 6; i++) {
+            const angle = (Math.PI / 3) * i;
+            const x = Math.cos(angle) * hexOutlineRadius;
+            const y = Math.sin(angle) * hexOutlineRadius;
+            vertices.push(x, y, 0);
+            colors.push(blackColor.r, blackColor.g, blackColor.b);
+        }
+        for (let i = 0; i < 6; i++) {
+            const next = (i + 1) % 6;
+            faces.push(count, count + i, count + next);
+        }
     }
 
-    // 起始端盖面
-    faces.push(capInnerStart, capInnerStart + 1, capInnerStart + 2);
-    faces.push(capInnerStart + 2, capInnerStart + 3, capInnerStart);
-    // 结束端盖面
-    faces.push(capInnerStart + 4, capInnerStart + 5, capInnerStart + 6);
-    faces.push(capInnerStart + 6, capInnerStart + 7, capInnerStart + 4);
+    // 内六边形（白色填充）
+    {
+        const count = vertices.length / 3;
+        const hexInnerRadius = hexRadius - outline;
+        for (let i = 0; i < 6; i++) {
+            const angle = (Math.PI / 3) * i;
+            const x = Math.cos(angle) * hexInnerRadius;
+            const y = Math.sin(angle) * hexInnerRadius;
+            vertices.push(x, y, 0);
+            colors.push(whiteColor.r, whiteColor.g, whiteColor.b);
+        }
+        for (let i = 0; i < 6; i++) {
+            const next = (i + 1) % 6;
+            faces.push(count, count + i, count + next);
+        }
+    }
+
+    // 端盖（描边）
+    {
+        const count = vertices.length / 3;
+        vertices.push(
+            length * m11 + width * m12, length * m12 - width * m11, 0,
+            length * m11 - width * m12, length * m12 + width * m11, 0,
+            -width * m12, width * m11, 0,
+            width * m12, -width * m11, 0,
+            length * m21 + width * m22, length * m22 - width * m21, 0,
+            length * m21 - width * m22, length * m22 + width * m21, 0,
+            -width * m22, width * m21, 0,
+            width * m22, -width * m21, 0
+        );
+        for (let i = 0; i < 8; i++) {
+            colors.push(blackColor.r, blackColor.g, blackColor.b);
+        }
+        faces.push(count, count + 1, count + 2);
+        faces.push(count + 2, count + 3, count);
+        faces.push(count + 4, count + 5, count + 6);
+        faces.push(count + 6, count + 7, count + 4);
+    }
+
+    // 端盖（内部）
+    {
+        const count = vertices.length / 3;
+        const innerLength = length - outline;
+        const innerWidth = width - outline;
+        vertices.push(
+            innerLength * m11 + innerWidth * m12, innerLength * m12 - innerWidth * m11, 0,
+            innerLength * m11 - innerWidth * m12, innerLength * m12 + innerWidth * m11, 0,
+            -innerWidth * m12, innerWidth * m11, 0,
+            innerWidth * m12, -innerWidth * m11, 0,
+            innerLength * m21 + innerWidth * m22, innerLength * m22 - innerWidth * m21, 0,
+            innerLength * m21 - innerWidth * m22, innerLength * m22 + innerWidth * m21, 0,
+            -innerWidth * m22, innerWidth * m21, 0,
+            innerWidth * m22, -innerWidth * m21, 0
+        );
+        for (let i = 0; i < 8; i++) {
+            colors.push(whiteColor.r, whiteColor.g, whiteColor.b);
+        }
+        faces.push(count, count + 1, count + 2);
+        faces.push(count + 2, count + 3, count);
+        faces.push(count + 4, count + 5, count + 6);
+        faces.push(count + 6, count + 7, count + 4);
+    }
 
     return { vertices, faces, colors };
 };

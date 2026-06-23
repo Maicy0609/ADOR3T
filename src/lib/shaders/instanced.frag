@@ -25,6 +25,8 @@ void main() {
         uv = vec2(uv.x * c - uv.y * s, uv.x * s + uv.y * c);
         uv += vec2(vTexSeed * 3.7, vTexSeed * 1.3);
         vec4 texColor = texture2D(uTileTexture, uv);
+        // Discard fully transparent texture fragments (prevents depth occlusion)
+        if (texColor.a < 0.05) discard;
         finalColor *= texColor.rgb;
     }
 
@@ -44,6 +46,9 @@ void main() {
             finalColor = mix(finalColor, iconColor.rgb, iconColor.a);
         }
     }
+
+    // Discard near-invisible fragments so they don't occlude tiles behind them
+    if (vOpacity < 0.005) discard;
 
     gl_FragColor = vec4(finalColor, vOpacity);
 }

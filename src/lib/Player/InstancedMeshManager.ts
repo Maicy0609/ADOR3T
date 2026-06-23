@@ -101,8 +101,9 @@ export class InstancedMeshManager {
             side: DoubleSide,
             transparent: true,
             depthTest: true,
-            // Tiles are ordered by z-position (stableZ) for depth testing.
-            // Transparent tiles with opacity=0 are hidden via scale=(0,0,0) in setTileVisibility.
+            // depthWrite=true + Z-ordering handles cross-shape tile ordering.
+            // Transparent fragments are discarded in shader (alpha < 0.005) so they
+            // don't write depth and occlude tiles behind them.
             depthWrite: true
         });
 

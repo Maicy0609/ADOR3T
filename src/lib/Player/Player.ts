@@ -18,6 +18,7 @@ import { PositionTrackManager } from './PositionTrackManager';
 import { InstancedMeshManager } from './InstancedMeshManager';
 import { TimelineManager } from './TimelineManager';
 import { OverlayHUD } from './OverlayHUD';
+import { ShakeScreen } from './effects/ShakeScreen';
 import { getIconTypeIndex, getTwirlTexture, getSetSpeedTexture, IconType, buildIconAtlas, ICON_ATLAS_SIZE } from './IconLoader';
 import Stats from 'three/examples/jsm/libs/stats.module.js';
 import type { Bloom, Flash, RecolorTrack } from 'adofai/event';
@@ -159,6 +160,9 @@ export class Player implements IPlayer {
   
   // Flash Effect
   private flashEffect: FlashEffect | null = null;
+
+  // Shake Screen Effect
+  private shakeScreen: ShakeScreen | null = null;
   
   // Custom Background (SetCustomBG event)
   private customBGMesh: Mesh | null = null;
@@ -374,6 +378,10 @@ export class Player implements IPlayer {
     
     // Build spatial index for fast visibility checks
     this.buildSpatialIndex();
+    
+    // Apply base state to any tiles already created (appear keyframes set initial state
+    // at time 0, but preview should show full tiles)
+    this.applyBaseStateToAllTiles();
     
     // Hitsounds will be synthesized during loading process with progress display
   }
@@ -897,6 +905,9 @@ export class Player implements IPlayer {
     
     this.renderer.setPixelRatio(window.devicePixelRatio);
     
+    // Initialize ShakeScreen
+    this.shakeScreen = new ShakeScreen();
+
     // Initialize Bloom Effect (WebGL only)
     if (this.rendererType === 'webgl') {
       this.bloomEffect = new BloomEffect();
@@ -1531,6 +1542,7 @@ export class Player implements IPlayer {
       switch (ev.eventType) {
         case 'Bloom': this.processBloomEvent(ev); break;
         case 'Flash': this.processFlashEvent(ev); break;
+        case 'ShakeScreen': this.processShakeScreenEvent(ev); break;
         case 'SetCustomBG': this.processCustomBGEvent(ev); break;
         case 'RecolorTrack': this.processRecolorEvent(ev); break;
       }
@@ -1817,16 +1829,29 @@ export class Player implements IPlayer {
     }
     
     if (this.renderer && this.scene && this.camera) {
+      // Apply shake offset to camera for rendering
+      let unshakenX = this.camera.position.x;
+      let unshakenY = this.camera.position.y;
+      if (this.shakeScreen) {
+        const shake = this.shakeScreen.update(this.elapsedTime / 1000);
+        this.camera.position.x += shake.x;
+        this.camera.position.y += shake.y;
+      }
+      
       try {
         const isWebGPU = this.rendererType === 'webgpu';
         const backendReady = !isWebGPU || (this.renderer as any).backend !== null;
         
         if (!backendReady) {
+          this.camera.position.x = unshakenX;
+          this.camera.position.y = unshakenY;
           return;
         }
         
         const gl = (this.renderer as any).getContext?.();
         if (gl && gl.isContextLost?.()) {
+          this.camera.position.x = unshakenX;
+          this.camera.position.y = unshakenY;
           return;
         }
         
@@ -1859,6 +1884,10 @@ export class Player implements IPlayer {
         }
       } catch (e) {
         console.warn('Render error:', e);
+      } finally {
+        // Restore unshaken camera position
+        this.camera.position.x = unshakenX;
+        this.camera.position.y = unshakenY;
       }
     }
   }
@@ -2193,6 +2222,11 @@ export class Player implements IPlayer {
       this.flashEffect.reset();
     }
     
+    // Reset ShakeScreen
+    if (this.shakeScreen) {
+      this.shakeScreen.stop();
+    }
+    
         // Reset decorations
         if (this.decorationManager) {
           this.decorationManager.reset();
@@ -2207,6 +2241,9 @@ export class Player implements IPlayer {
           }
           this.syncInstancedTiles();
         }
+    
+        // Override appear animation initial state at time 0: show base state for preview
+        this.applyBaseStateToAllTiles();
     
         // Re-apply PositionTrack transforms (PositionTrack is global and applies at all times)
         this.reapplyPositionTrackTransforms();
@@ -2302,6 +2339,19 @@ export class Player implements IPlayer {
           this.videoElement.currentTime = Math.max(0, timeMs / 1000 - this.musicStartDelay);
         }
       }
+    }
+
+    // Stop real-time effects during seek
+    if (this.shakeScreen) {
+      this.shakeScreen.stop();
+    }
+    if (this.flashEffect) {
+      this.flashEffect.stop();
+    }
+
+    // In preview mode at time 0, show base state (not appear animation initial state)
+    if (!this.isPlaying && timeMs < 10) {
+      this.applyBaseStateToAllTiles();
     }
 
     if (this.cameraController) {
@@ -2401,6 +2451,28 @@ export class Player implements IPlayer {
    * Re-apply PositionTrack transforms to all tiles
    * PositionTrack is global and applies at all times (not just during playback)
    */
+  private applyBaseStateToAllTiles(): void {
+    for (const [tileId, mesh] of this.tiles) {
+      const idx = parseInt(tileId, 10);
+      const tile = this.levelData.tiles[idx];
+      if (!tile) continue;
+      const pos = tile.position;
+      mesh.position.x = pos[0];
+      mesh.position.y = pos[1];
+      mesh.rotation.z = 0;
+      mesh.scale.set(1, 1, 1);
+      mesh.userData.opacity = 1;
+      mesh.visible = true;
+      if (mesh.material) {
+        (mesh.material as any).opacity = 1;
+        (mesh.material as any).transparent = false;
+      }
+      if (this.instancedMeshManager) {
+        this.instancedMeshManager.updateTileTransform(idx, mesh.position, mesh.rotation as Euler, mesh.scale, 1);
+      }
+    }
+  }
+
   private reapplyPositionTrackTransforms(): void {
     if (!this.positionTrackManager) return;
     
@@ -2593,33 +2665,42 @@ export class Player implements IPlayer {
     const bpm = this.tileBPM[event.floor] || 100;
     const secPerBeat = 60 / bpm;
     
-    // Parse duration (in beats, convert to seconds)
-    const duration = (event.duration !== undefined ? event.duration : 1) * secPerBeat;
+    // Apply duration in beats → seconds (same as C#: duration *= crotchet)
+    if (event.duration !== undefined) {
+        event = { ...event, duration: event.duration * secPerBeat };
+    }
     
-    // Parse colors
-    const startColor = event.startColor || 'ffffff';
-    const endColor = event.endColor || 'ffffff';
-    
-    // Parse opacity (0-100, convert to 0-1)
-    const startOpacity = (event.startOpacity !== undefined ? event.startOpacity : 100) / 100;
-    const endOpacity = (event.endOpacity !== undefined ? event.endOpacity : 0) / 100;
-    
-    // Parse ease (default to Linear)
-    const ease = event.ease || 'Linear';
-    
-    // Parse plane (0 = FG, 1 = BG)
+    // Parse plane (0 = FG, 1 = BG, default FG)
     const plane = event.plane === 1 ? 'BG' : 'FG';
     
-    // Start the flash effect
     this.flashEffect.startFlash(
-        this.elapsedTime / 1000,  // Current time in seconds
+        this.elapsedTime / 1000,
+        event,
+        plane,
+    );
+  }
+
+  private processShakeScreenEvent(event: any): void {
+    if (!this.shakeScreen) return;
+    
+    const bpm = this.tileBPM[event.floor] || 100;
+    const secPerBeat = 60 / bpm;
+    
+    const strength = (event.strength ?? 100) / 100;
+    const intensity = (event.intensity ?? 100) / 100;
+    const duration = (event.duration ?? 1) * secPerBeat;
+    const ease = event.ease || 'Linear';
+    const fadeOut = event.fadeOut !== false;
+    const plane = event.plane === 1 ? 'BG' : 'FG';
+    
+    this.shakeScreen.startShake(
+        this.elapsedTime / 1000,
+        strength,
+        intensity,
         duration,
-        startColor,
-        endColor,
-        startOpacity,
-        endOpacity,
         ease,
-        plane
+        fadeOut,
+        plane,
     );
   }
 

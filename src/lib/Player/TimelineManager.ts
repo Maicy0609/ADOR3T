@@ -64,23 +64,100 @@ export class TimelineManager {
 
         const zeroOffsetTracker: Map<number, number> = new Map();
 
+        // ── Build RepeatEvent table ──────────────────────────────
+        // dict[floor][tag] → { repetitions, interval, executeOnCurrentFloor, gapLength }
+        const repeatTable: Map<number, Map<string, {
+            repetitions: number; interval: number; executeOnCurrentFloor: boolean; gapLength: number;
+        }>> = new Map();
         for (const action of actions) {
             if (!isEventActive(action)) continue;
-
+            if (action.eventType !== 'RepeatEvents') continue;
             const floor = action.floor ?? 0;
-            const bpm = this.tileBPM[floor] || 100;
-            const secPerBeat = 60 / bpm;
-            const startTime = this.tileStartTimes[floor] || 0;
-            const angleOffset = action.angleOffset || 0;
-            let timeOffset = (angleOffset / 180) * secPerBeat;
+            if (!repeatTable.has(floor)) repeatTable.set(floor, new Map());
+            const sub = repeatTable.get(floor)!;
+            const isBeat = action.repeatType === 'Beat';
+            const repetitions = isBeat ? (action.repetitions ?? 0) : (action.floorCount ?? 0);
+            const interval = isBeat ? (action.interval ?? 1) : -1;
+            const executeOnCurrentFloor = action.executeOnCurrentFloor ?? false;
+            const gapLength = action.gapLength ?? 1;
+            const tags = (action.tag ?? '').split(' ').filter((t: string) => t);
+            for (const tag of tags) {
+                sub.set(tag, { repetitions, interval, executeOnCurrentFloor, gapLength });
+            }
+        }
 
-            if (action.eventType === 'MoveTrack' && angleOffset === 0) {
-                const idSorted = perFloorMoveTrack.get(floor) ?? [];
-                const order = idSorted.findIndex(e => e.id === action.id);
-                if (order > 0) timeOffset += order * 0.0001;
+        for (const action of actions) {
+            if (!isEventActive(action)) continue;
+            if (action.eventType === 'RepeatEvents') continue;
+
+            // ── Expand repeated events ────────────────────────────
+            const eventsToProcess: { event: any; floor: number; angleOffset: number }[] = [];
+
+            const eventTag = action.eventTag ?? '';
+            const hasRepeat = eventTag && repeatTable.has(action.floor) && repeatTable.get(action.floor)!.has(eventTag);
+
+            if (hasRepeat) {
+                const info = repeatTable.get(action.floor)!.get(eventTag)!;
+                const baseFloor = action.floor;
+                const isBeatMode = info.interval > 0;
+
+                for (let rep = 0; rep <= info.repetitions; rep++) {
+                    const targetFloor = baseFloor + rep * info.gapLength;
+                    if (targetFloor >= this.totalTiles) break;
+
+                    let repAngleOffset: number;
+                    let epFloor: number;
+                    if (isBeatMode) {
+                        // Beat mode: event stays on original floor, angle offset shifts time
+                        epFloor = baseFloor;
+                        repAngleOffset = info.interval * rep * 180;
+                    } else {
+                        // Floor mode
+                        if (info.executeOnCurrentFloor) {
+                            // Event moves to target floor
+                            epFloor = targetFloor;
+                            repAngleOffset = 0;
+                        } else {
+                            // Event stays on original floor, offset = beat difference
+                            epFloor = baseFloor;
+                            const baseTime = this.tileStartTimes[baseFloor] || 0;
+                            const targetTime = this.tileStartTimes[targetFloor] || 0;
+                            const bpm = this.tileBPM[baseFloor] || 100;
+                            const secPerBeat = 60 / bpm;
+                            const beatDiff = (targetTime - baseTime) / secPerBeat;
+                            repAngleOffset = beatDiff * 180;
+                        }
+                    }
+
+                    eventsToProcess.push({
+                        event: action,
+                        floor: epFloor,
+                        angleOffset: (action.angleOffset || 0) + repAngleOffset,
+                    });
+                }
+            } else {
+                eventsToProcess.push({
+                    event: action,
+                    floor: action.floor ?? 0,
+                    angleOffset: action.angleOffset || 0,
+                });
             }
 
-            const eventTime = startTime + timeOffset;
+            for (const ep of eventsToProcess) {
+                const floor = ep.floor;
+                const bpm = this.tileBPM[floor] || 100;
+                const secPerBeat = 60 / bpm;
+                const startTime = this.tileStartTimes[floor] || 0;
+                const angleOffset = ep.angleOffset;
+                let timeOffset = (angleOffset / 180) * secPerBeat;
+
+                if (action.eventType === 'MoveTrack' && angleOffset === 0) {
+                    const idSorted = perFloorMoveTrack.get(floor) ?? [];
+                    const order = idSorted.findIndex(e => e.id === action.id);
+                    if (order > 0) timeOffset += order * 0.0001;
+                }
+
+                const eventTime = startTime + timeOffset;
 
             if (action.eventType === 'MoveTrack') {
                 const startTile = this.parseTileReference(action.startTile, floor);
@@ -103,7 +180,8 @@ export class TimelineManager {
                        action.eventType !== 'PlayHitsound') {
                 triggerEntries.push({ time: eventTime, event: action });
             }
-        }
+        } // end for eventsToProcess
+        } // end for actions
 
         triggerEntries.sort((a, b) => {
             const dt = a.time - b.time;
@@ -113,10 +191,8 @@ export class TimelineManager {
         });
         this.triggerEvents = triggerEntries;
 
-        // Build Appear/Disappear keyframes FIRST from AnimateTrack events,
-        // then MoveTrack SECOND so MoveTrack opacity/position/scale can override them.
-        this.buildAnimateTrackKeyframes(actions, basePositions, baseRotations, baseScales, baseOpacities, settings);
-
+        // Build MoveTrack keyframes FIRST, then AnimateTrack (appear/disappear)
+        // SECOND so AnimateTrack wins on conflicts (matching C# priority).
         for (const [tileIdx, events] of perTileMoveTrack) {
             events.sort((a, b) => {
                 const dt = a.time - b.time;
@@ -125,6 +201,9 @@ export class TimelineManager {
             });
             this.buildTileMoveTrack(tileIdx, events, basePositions, baseRotations, baseScales, baseOpacities, tileIdx < this.tileStartTimes.length ? this.tileStartTimes[tileIdx] : 0);
         }
+
+        // Build Appear/Disappear keyframes AFTER MoveTrack so AnimateTrack wins on conflicts.
+        this.buildAnimateTrackKeyframes(actions, basePositions, baseRotations, baseScales, baseOpacities, settings);
     }
 
     private buildTileMoveTrack(
@@ -154,6 +233,9 @@ export class TimelineManager {
 
         for (const entry of events) {
             const { event, time: eventTime, duration: eventDuration, floor } = entry;
+
+            // Clamp eventTime to 0 so negative-angle events don't delete base keyframes at time 0
+            const clampedTime = Math.max(0, eventTime);
 
             const positionUsed = event.positionOffset !== undefined && isFieldEnabled(event, 'positionOffset');
             const rotationUsed = event.rotationOffset !== undefined && isFieldEnabled(event, 'rotationOffset');
@@ -188,14 +270,14 @@ export class TimelineManager {
             const targetOp = opacity != null ? opacity : accOp;
 
             if (eventDuration <= 0) {
-                if (offsetX != null) this.instantKeyframe(`tile:${tileIdx}`, 'positionX', eventTime, targetX);
-                if (offsetY != null) this.instantKeyframe(`tile:${tileIdx}`, 'positionY', eventTime, targetY);
-                if (rotationOffset != null) this.instantKeyframe(`tile:${tileIdx}`, 'rotation', eventTime, targetRot);
-                if (scaleX != null) this.instantKeyframe(`tile:${tileIdx}`, 'scaleX', eventTime, targetSX);
-                if (scaleY != null) this.instantKeyframe(`tile:${tileIdx}`, 'scaleY', eventTime, targetSY);
-                if (opacity != null) this.instantKeyframe(`tile:${tileIdx}`, 'opacity', eventTime, targetOp);
+                if (offsetX != null) this.instantKeyframe(`tile:${tileIdx}`, 'positionX', clampedTime, targetX);
+                if (offsetY != null) this.instantKeyframe(`tile:${tileIdx}`, 'positionY', clampedTime, targetY);
+                if (rotationOffset != null) this.instantKeyframe(`tile:${tileIdx}`, 'rotation', clampedTime, targetRot);
+                if (scaleX != null) this.instantKeyframe(`tile:${tileIdx}`, 'scaleX', clampedTime, targetSX);
+                if (scaleY != null) this.instantKeyframe(`tile:${tileIdx}`, 'scaleY', clampedTime, targetSY);
+                if (opacity != null) this.instantKeyframe(`tile:${tileIdx}`, 'opacity', clampedTime, targetOp);
             } else {
-                const endTime = eventTime + eventDuration;
+                const endTime = clampedTime + eventDuration;
                 const props: [string, number][] = [];
                 if (offsetX != null) props.push(['positionX', targetX]);
                 if (offsetY != null) props.push(['positionY', targetY]);
@@ -206,14 +288,14 @@ export class TimelineManager {
 
                 for (const [prop, target] of props) {
                     const kfs = this.timelines.get(`tile:${tileIdx}`)!.get(prop)!;
-                    const prevIdx = this.findKeyframeIndex(kfs, eventTime);
+                    const prevIdx = this.findKeyframeIndex(kfs, clampedTime);
                     const startVal = prevIdx >= 0
-                        ? this.interpolateTimeline(kfs, prevIdx, eventTime)
-                        : kfs[0]?.value ?? 0;
+                        ? this.interpolateTimeline(kfs, prevIdx, clampedTime)
+                        : (kfs[0]?.value ?? 0);
 
-                    this.removeAfter(kfs, eventTime + 1e-9);
+                    this.removeAfter(kfs, clampedTime + 1e-9);
 
-                    kfs.push({ time: eventTime, value: startVal, ease: ease });
+                    kfs.push({ time: clampedTime, value: startVal, ease: ease });
                     kfs.push({ time: endTime, value: target, ease: null });
                     if (kfs.length > 1) kfs.sort((a, b) => a.time - b.time);
                 }
@@ -419,6 +501,39 @@ export class TimelineManager {
         if (kfs.length > 1) kfs.sort((a, b) => a.time - b.time);
     }
 
+    /**
+     * Like addTween but does NOT remove keyframes after endTime.
+     * Only removes keyframes BETWEEN startTime and endTime, preserving
+     * existing keyframes after endTime (e.g. MoveTrack keyframes that
+     * should take effect after a disappear animation completes).
+     * Uses addKeyframe to handle duplicates at start/end times.
+     */
+    private pushTween(entity: string, property: string, startTime: number, endTime: number, endValue: number, ease: string): void {
+        const kfs = this.ensureTimeline(entity, property);
+        const prevIdx = this.findKeyframeIndex(kfs, startTime);
+        const actualStart = prevIdx >= 0
+            ? this.interpolateTimeline(kfs, prevIdx, startTime)
+            : (kfs[0]?.value ?? 0);
+
+        // Only remove keyframes strictly between start and end
+        for (let i = kfs.length - 1; i >= 0; i--) {
+            if (kfs[i].time > startTime + 1e-9 && kfs[i].time < endTime) {
+                kfs.splice(i, 1);
+            }
+        }
+
+        this.addKeyframe(entity, property, startTime, actualStart, ease);
+        this.addKeyframe(entity, property, endTime, endValue, null);
+    }
+
+    private removeBetween(kfs: Keyframe[], start: number, end: number): void {
+        for (let i = kfs.length - 1; i >= 0; i--) {
+            if (kfs[i].time > start && kfs[i].time < end) {
+                kfs.splice(i, 1);
+            }
+        }
+    }
+
     /* ── 查询所有 entity 类型 ─────────────────────────────────────── */
 
     public getAllEntitiesByPrefix(prefix: string): string[] {
@@ -591,9 +706,6 @@ export class TimelineManager {
         const tiles = isDropOrRise ? beatsAhead * 2 : beatsAhead;
         const appearStartTime = Math.max(entryTime - tiles * secPerBeat, 0);
 
-        // Don't generate appear keyframes that start at/before time 0 —
-        // At time 0 the tile should be in its base state for preview.
-        if (appearStartTime <= 0) return;
         const appearDuration = isDropOrRise
             ? secPerBeat * beatsAhead
             : Math.min(secPerBeat * 0.5, 0.5);
@@ -609,22 +721,15 @@ export class TimelineManager {
         const entity = `tile:${floor}`;
         const ease = isDropOrRise ? 'Linear.easeNone' : 'Quad.easeOut';
 
-        // Add pre-keyframes at appearStartTime - epsilon so sample()
-        // returns base values right before the animation starts.
-        // Without these, sample interpolates from time 0 → appearStartTime,
-        // making tiles semi-transparent/invisible before their animation.
-        const preTime = appearStartTime - 1e-7;
-        this.addKeyframe(entity, 'positionX', preTime, baseX, null);
-        this.addKeyframe(entity, 'positionY', preTime, baseY, null);
-        this.addKeyframe(entity, 'rotation', preTime, baseRot, null);
-        this.addKeyframe(entity, 'scaleX', preTime, baseSX, null);
-        this.addKeyframe(entity, 'scaleY', preTime, baseSY, null);
-        this.addKeyframe(entity, 'opacity', preTime, baseOp, null);
-
         switch (animType) {
             case 'Extend': {
                 const prevX = floor > 0 ? (basePositions[floor - 1]?.x ?? baseX) : baseX;
                 const prevY = floor > 0 ? (basePositions[floor - 1]?.y ?? baseY) : baseY;
+                // Initial state at time 0 (invisible until appear animation)
+                this.instantKeyframe(entity, 'positionX', 0, prevX);
+                this.instantKeyframe(entity, 'positionY', 0, prevY);
+                this.instantKeyframe(entity, 'scaleX', 0, 0);
+                this.instantKeyframe(entity, 'scaleY', 0, 0);
                 this.instantKeyframe(entity, 'positionX', appearStartTime, prevX);
                 this.instantKeyframe(entity, 'positionY', appearStartTime, prevY);
                 this.instantKeyframe(entity, 'scaleX', appearStartTime, 0);
@@ -643,6 +748,9 @@ export class TimelineManager {
                 const dx = this.seededRandom(seed) * range * 2 - range;
                 const dy = this.seededRandom(seed + 1) * range * 2 - range;
                 const dr = (this.seededRandom(seed + 2) * rotRange * 2 - rotRange) * Math.PI / 180;
+                this.instantKeyframe(entity, 'positionX', 0, baseX + dx);
+                this.instantKeyframe(entity, 'positionY', 0, baseY + dy);
+                this.instantKeyframe(entity, 'rotation', 0, baseRot + dr);
                 this.instantKeyframe(entity, 'positionX', appearStartTime, baseX + dx);
                 this.instantKeyframe(entity, 'positionY', appearStartTime, baseY + dy);
                 this.instantKeyframe(entity, 'rotation', appearStartTime, baseRot + dr);
@@ -652,6 +760,8 @@ export class TimelineManager {
                 break;
             }
             case 'Grow': {
+                this.instantKeyframe(entity, 'scaleX', 0, 0);
+                this.instantKeyframe(entity, 'scaleY', 0, 0);
                 this.instantKeyframe(entity, 'scaleX', appearStartTime, 0);
                 this.instantKeyframe(entity, 'scaleY', appearStartTime, 0);
                 this.addTween(entity, 'scaleX', appearStartTime, appearEndTime, 0, baseSX, ease);
@@ -659,6 +769,9 @@ export class TimelineManager {
                 break;
             }
             case 'Grow_Spin': {
+                this.instantKeyframe(entity, 'scaleX', 0, 0);
+                this.instantKeyframe(entity, 'scaleY', 0, 0);
+                this.instantKeyframe(entity, 'rotation', 0, baseRot - Math.PI);
                 this.instantKeyframe(entity, 'scaleX', appearStartTime, 0);
                 this.instantKeyframe(entity, 'scaleY', appearStartTime, 0);
                 this.instantKeyframe(entity, 'rotation', appearStartTime, baseRot - Math.PI);
@@ -668,12 +781,16 @@ export class TimelineManager {
                 break;
             }
             case 'Fade': {
+                this.instantKeyframe(entity, 'opacity', 0, 0);
                 this.instantKeyframe(entity, 'opacity', appearStartTime, 0);
                 this.addTween(entity, 'opacity', appearStartTime, appearEndTime, 0, baseOp, ease);
                 break;
             }
             case 'Drop': {
                 const scaleDur = appearDuration / 8;
+                this.instantKeyframe(entity, 'positionY', 0, baseY + 8);
+                this.instantKeyframe(entity, 'scaleX', 0, 0);
+                this.instantKeyframe(entity, 'scaleY', 0, 0);
                 this.instantKeyframe(entity, 'positionY', appearStartTime, baseY + 8);
                 this.instantKeyframe(entity, 'scaleX', appearStartTime, 0);
                 this.instantKeyframe(entity, 'scaleY', appearStartTime, 0);
@@ -684,6 +801,9 @@ export class TimelineManager {
             }
             case 'Rise': {
                 const scaleDur = appearDuration / 8;
+                this.instantKeyframe(entity, 'positionY', 0, baseY - 8);
+                this.instantKeyframe(entity, 'scaleX', 0, 0);
+                this.instantKeyframe(entity, 'scaleY', 0, 0);
                 this.instantKeyframe(entity, 'positionY', appearStartTime, baseY - 8);
                 this.instantKeyframe(entity, 'scaleX', appearStartTime, 0);
                 this.instantKeyframe(entity, 'scaleY', appearStartTime, 0);
@@ -729,33 +849,33 @@ export class TimelineManager {
                 const dx = this.seededRandom(seed) * range * 2 - range;
                 const dy = this.seededRandom(seed + 1) * range * 2 - range;
                 const dr = (this.seededRandom(seed + 2) * 150 - 75) * Math.PI / 180;
-                this.addTween(entity, 'positionX', disappearStartTime, disappearEndTime, baseX, baseX + dx, ease);
-                this.addTween(entity, 'positionY', disappearStartTime, disappearEndTime, baseY, baseY + dy, ease);
-                this.addTween(entity, 'rotation', disappearStartTime, disappearEndTime, baseRot, baseRot + dr, ease);
+                this.pushTween(entity, 'positionX', disappearStartTime, disappearEndTime, baseX + dx, ease);
+                this.pushTween(entity, 'positionY', disappearStartTime, disappearEndTime, baseY + dy, ease);
+                this.pushTween(entity, 'rotation', disappearStartTime, disappearEndTime, baseRot + dr, ease);
                 break;
             }
             case 'Retract': {
                 const nextX = basePositions[floor + 1]?.x ?? baseX;
                 const nextY = basePositions[floor + 1]?.y ?? baseY;
-                this.addTween(entity, 'positionX', disappearStartTime, disappearEndTime, baseX, nextX, ease);
-                this.addTween(entity, 'positionY', disappearStartTime, disappearEndTime, baseY, nextY, ease);
-                this.addTween(entity, 'scaleX', disappearStartTime, disappearEndTime, baseSX, 0, ease);
-                this.addTween(entity, 'scaleY', disappearStartTime, disappearEndTime, baseSY, 0, ease);
+                this.pushTween(entity, 'positionX', disappearStartTime, disappearEndTime, nextX, ease);
+                this.pushTween(entity, 'positionY', disappearStartTime, disappearEndTime, nextY, ease);
+                this.pushTween(entity, 'scaleX', disappearStartTime, disappearEndTime, 0, ease);
+                this.pushTween(entity, 'scaleY', disappearStartTime, disappearEndTime, 0, ease);
                 break;
             }
             case 'Shrink': {
-                this.addTween(entity, 'scaleX', disappearStartTime, disappearEndTime, baseSX, 0, ease);
-                this.addTween(entity, 'scaleY', disappearStartTime, disappearEndTime, baseSY, 0, ease);
+                this.pushTween(entity, 'scaleX', disappearStartTime, disappearEndTime, 0, ease);
+                this.pushTween(entity, 'scaleY', disappearStartTime, disappearEndTime, 0, ease);
                 break;
             }
             case 'Shrink_Spin': {
-                this.addTween(entity, 'scaleX', disappearStartTime, disappearEndTime, baseSX, 0, ease);
-                this.addTween(entity, 'scaleY', disappearStartTime, disappearEndTime, baseSY, 0, ease);
-                this.addTween(entity, 'rotation', disappearStartTime, disappearEndTime, baseRot, baseRot - Math.PI, ease);
+                this.pushTween(entity, 'scaleX', disappearStartTime, disappearEndTime, 0, ease);
+                this.pushTween(entity, 'scaleY', disappearStartTime, disappearEndTime, 0, ease);
+                this.pushTween(entity, 'rotation', disappearStartTime, disappearEndTime, baseRot - Math.PI, ease);
                 break;
             }
             case 'Fade': {
-                this.addTween(entity, 'opacity', disappearStartTime, disappearEndTime, baseOp, 0, ease);
+                this.pushTween(entity, 'opacity', disappearStartTime, disappearEndTime, 0, ease);
                 break;
             }
         }
