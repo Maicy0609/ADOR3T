@@ -11,6 +11,7 @@ export interface Keyframe {
 export class TimelineManager {
     private timelines: Map<string, Map<string, Keyframe[]>> = new Map();
     private triggerEvents: { time: number; event: any }[] = [];
+    private _cameraEvents: { time: number; event: any; floor: number; angleOffset: number }[] = [];
     private lastTriggerIndex: number = -1;
 
     private tileStartTimes: number[];
@@ -175,8 +176,9 @@ export class TimelineManager {
                         time: eventTime, duration, event: action, floor,
                     });
                 }
-            } else if (action.eventType !== 'MoveCamera' &&
-                       action.eventType !== 'SetHitsound' &&
+            } else if (action.eventType === 'MoveCamera') {
+                this._cameraEvents.push({ time: eventTime, event: action, floor: ep.floor, angleOffset: ep.angleOffset });
+            } else if (action.eventType !== 'SetHitsound' &&
                        action.eventType !== 'PlayHitsound') {
                 triggerEntries.push({ time: eventTime, event: action });
             }
@@ -535,6 +537,14 @@ export class TimelineManager {
     }
 
     /* ── 查询所有 entity 类型 ─────────────────────────────────────── */
+
+    public get cameraEvents(): { time: number; event: any; floor: number; angleOffset: number }[] {
+        return this._cameraEvents;
+    }
+
+    public getTriggerEvents(): { time: number; event: any }[] {
+        return this.triggerEvents;
+    }
 
     public getAllEntitiesByPrefix(prefix: string): string[] {
         const result: string[] = [];

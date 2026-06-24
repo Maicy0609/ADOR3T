@@ -330,8 +330,12 @@ export class Player implements IPlayer {
     this.cameraController = new CameraController(levelData, this.tileStartTimes, this.tileBPM);
     this.cameraController.resetCameraState();
     
-    // Build Camera Timeline
-    this.cameraController.buildCameraTimeline(this.tileCameraEvents);
+    // Build Camera Timeline from repeat-expanded events
+    const expandedCamera = this.timelineManager.cameraEvents.map(e => ({
+        time: e.time,
+        event: { ...e.event, floor: e.floor },
+    }));
+    this.cameraController.loadCameraTimeline(expandedCamera);
 
     // Initialize Decoration Manager
     this.decorationManager = new DecorationManager(
@@ -2690,7 +2694,7 @@ export class Player implements IPlayer {
     const intensity = (event.intensity ?? 100) / 100;
     const duration = (event.duration ?? 1) * secPerBeat;
     const ease = event.ease || 'Linear';
-    const fadeOut = event.fadeOut !== false;
+    const fadeOut = event.fadeOut === true;
     const plane = event.plane === 1 ? 'BG' : 'FG';
     
     this.shakeScreen.startShake(

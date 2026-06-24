@@ -225,6 +225,11 @@ export class CameraController {
 
     // ── 时间线构建 ────────────────────────────────────────────────────────
 
+    /** Directly load a pre-sorted, repeat-expanded timeline. */
+    public loadCameraTimeline(entries: CameraTimelineEntry[]): void {
+        this.cameraTimeline = entries;
+    }
+
     public buildCameraTimeline(tileCameraEvents: Map<number, any[]>): void {
         const entries: CameraTimelineEntry[] = [];
 
@@ -362,6 +367,13 @@ export class CameraController {
         const isLastPosition = movementType === 'LastPosition' || movementType === 'LastPositionNoRotation';
         const pivot = pivotPos ?? { x: 0, y: 0 };
 
+        // Compute current world position for val2/vector2 (matching C# camParent.position)
+        const currentWorldRef = this.getModeReference(this.cameraMode.relativeTo, pivot);
+        const currentWorldPos = {
+            x: currentWorldRef.x + this.cameraMode.position.x,
+            y: currentWorldRef.y + this.cameraMode.position.y,
+        };
+
         // Step 2 — 去重 movementType
         if (movementTypeUsed &&
             movementType !== CamMovementTypes.Global &&
@@ -413,12 +425,12 @@ export class CameraController {
             ? movementType
             : this.cameraMode.lastUsedMovementType;
 
-        // Step 6 — vector2
+        // Step 6 — vector2 (uses world position, matching C# camParent.position)
         const vector2: { x: number; y: number } = positionUsed
             ? { x: vector.x, y: vector.y }
             : {
-                x: this.cameraMode.lastEventRelativePosition.x - this.cameraMode.position.x,
-                y: this.cameraMode.lastEventRelativePosition.y - this.cameraMode.position.y,
+                x: this.cameraMode.lastEventRelativePosition.x - currentWorldPos.x,
+                y: this.cameraMode.lastEventRelativePosition.y - currentWorldPos.y,
               };
 
         // Step 7 — 模式切换 + finalPos
@@ -456,9 +468,8 @@ export class CameraController {
                 const floorPos = getTilePosition(this.levelData, floorIndex);
                 this.cameraMode.lastEventRelativePosition = { x: floorPos.x, y: floorPos.y };
                 this.cameraMode.lastTileCamFloor = floorIndex;
-                finalPos = positionUsed
-                    ? { x: vector2.x, y: vector2.y }
-                    : { x: this.cameraMode.position.x, y: this.cameraMode.position.y };
+                // Always use vector2 (matching C#: finalPos = val2 + floorPos, relative = finalPos - floorPos = val2)
+                finalPos = { x: vector2.x, y: vector2.y };
                 break;
             }
             case 'Global': {
@@ -473,9 +484,8 @@ export class CameraController {
                     this.cameraMode.followMode = false;
                 }
                 this.cameraMode.lastEventRelativePosition = { x: 0, y: 0 };
-                finalPos = positionUsed
-                    ? { x: vector2.x, y: vector2.y }
-                    : { x: this.cameraMode.position.x, y: this.cameraMode.position.y };
+                // Matching C#: finalPos = val2
+                finalPos = { x: vector2.x, y: vector2.y };
                 break;
             }
             case 'LastPosition':
